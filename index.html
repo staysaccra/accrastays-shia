@@ -202,10 +202,16 @@ const SAMPLE=[
 {id:"s7",name:"Spintex Comfort Self-contain",type:"Self-contain",area:"Spintex",price:1500,per:"month",rooms:4,am:["water","light","wc","park"].filter(a=>AM[a]),desc:"Newly built, with ample parking and a quiet street.",phone:"233200000007",status:"live"},
 {id:"s8",name:"Sea Breeze Room",type:"Single room",area:"Dansoman",price:600,per:"month",rooms:2,am:["water","fan","sec"],desc:"Breezy room in a family compound, 10 minutes from the main road.",phone:"233200000008",status:"live"},
 {id:"s9",name:"Tema Community 9 Studio",type:"Apartment",area:"Tema",price:2200,per:"month",rooms:1,am:["wifi","water","sec"],desc:"Awaiting admin approval.",phone:"233200000009",status:"pending"}];
-let mem=null;const save=()=>{if(staff)return;try{localStorage.setItem("akw_l",JSON.stringify(L))}catch(e){mem=JSON.stringify(L)}};
-const cloudCreateListing=async listing=>{if(!db)throw new Error("Firestore unavailable");await db.collection("listings").doc(String(listing.id)).set({...listing,createdAt:firebase.firestore.FieldValue.serverTimestamp(),updatedAt:firebase.firestore.FieldValue.serverTimestamp()});};
+let mem=null;const save=()=>{if(staff)return;const j=JSON.stringify(L.map(({cover,...r})=>r));try{localStorage.setItem("akw_l",j)}catch(e){mem=j}};
+const cloudCreateListing=async(listing,photos=[])=>{if(!db)throw new Error("Firestore unavailable");
+  const fv=firebase.firestore.FieldValue,ref=db.collection("listings").doc(String(listing.id)),b=db.batch();
+  b.set(ref,{...listing,createdAt:fv.serverTimestamp(),updatedAt:fv.serverTimestamp()});
+  photos.forEach((d,i)=>b.set(ref.collection("photos").doc(String(i)),{data:d,order:i}));
+  await b.commit();};
 const cloudUpdateListing=async(id,fields)=>{if(!db)throw new Error("Firestore unavailable");await db.collection("listings").doc(String(id)).set({...fields,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});};
-const cloudDeleteListing=async id=>{if(!db)throw new Error("Firestore unavailable");await db.collection("listings").doc(String(id)).delete();};
+const cloudDeleteListing=async id=>{if(!db)throw new Error("Firestore unavailable");
+  const ref=db.collection("listings").doc(String(id)),ps=await ref.collection("photos").get(),b=db.batch();
+  ps.docs.forEach(d=>b.delete(d.ref));b.delete(ref);await b.commit();};
 let L;try{L=JSON.parse(localStorage.getItem("akw_l")||mem)}catch(e){}L=L||SAMPLE;
 let area="",isAdmin=false;
 const mo=l=>({year:l.price/12,semester:l.price/6,month:l.price,night:l.price*30}[l.per]||l.price);
@@ -258,7 +264,7 @@ function draw(){const q=$("#q").value.toLowerCase().trim(),t=$("#ty").value,b=+$
   $$("#track button").forEach(x=>x.classList.toggle("on",x.dataset.c===(area||"All Accra")));
   $("#info").textContent=r.length?`${r.length} place${r.length>1?"s":""} ${area?"in "+area:"across Accra"}`:"";
   $("#hlt").textContent=$("#info").textContent||"No places match yet";
-  $("#grid").innerHTML=r.length?r.map(l=>{const[e,c]=TY[l.type]||["🏠","#ddd"];return`<button class="card" data-id="${l.id}"><div class="pic" style="background:${c}"><span class="tag">${esc(l.type)}</span>${saved.has(String(l.id))?'<span style="position:absolute;right:10px;top:8px;color:#e0245e;font-size:20px;line-height:1;text-shadow:none">♥</span>':""}${e}</div><div class="cb"><h3>${esc(l.name)}</h3><div class="mut">${esc(l.area)}${l.rooms>0?" · "+l.rooms+" available":" · Full"}</div><div class="am">${(l.am||[]).slice(0,3).map(a=>`<span>${AM[a]||""}</span>`).join("")}</div><div class="price">${money(l)}</div></div></button>`}).join(""):`<div class="empty"><b>No places match yet.</b><p class="mut">Try another area, or choose Any type and Any budget.</p><button class="btn" id="rs">Show everything</button></div>`;
+  $("#grid").innerHTML=r.length?r.map(l=>{const[e,c]=TY[l.type]||["🏠","#ddd"];return`<button class="card" data-id="${l.id}"><div class="pic" style="background:${sImg(l.cover)?`url(${sImg(l.cover)}) center/cover`:c}"><span class="tag">${esc(l.type)}</span>${saved.has(String(l.id))?'<span style="position:absolute;right:10px;top:8px;color:#e0245e;font-size:20px;line-height:1;text-shadow:none">♥</span>':""}${sImg(l.cover)?"":e}</div><div class="cb"><h3>${esc(l.name)}</h3><div class="mut">${esc(l.area)}${l.rooms>0?" · "+l.rooms+" available":" · Full"}</div><div class="am">${(l.am||[]).slice(0,3).map(a=>`<span>${AM[a]||""}</span>`).join("")}</div><div class="price">${money(l)}</div></div></button>`}).join(""):`<div class="empty"><b>No places match yet.</b><p class="mut">Try another area, or choose Any type and Any budget.</p><button class="btn" id="rs">Show everything</button></div>`;
   $("#rs")&&($("#rs").onclick=()=>{$("#ty").value=$("#bu").value="";pick("")});
   $$(".card").forEach(c=>c.onclick=()=>view(c.dataset.id));
   if(listingLayer&&accraMap){
@@ -277,20 +283,59 @@ function draw(){const q=$("#q").value.toLowerCase().trim(),t=$("#ty").value,b=+$
     if(area){const c=AREA_GEO[area];if(c)accraMap.setView(c,13)}else if(r.length===0){accraMap.setView([5.6037,-0.1870],11)}
   }}
 function view(id){const l=L.find(x=>x.id===id);if(!l)return;const[e,c]=TY[l.type]||["🏠","#ddd"];
-  $("#v").innerHTML=`<button class="x" data-x>×</button><div class="pic" style="background:${c};border-radius:16px;height:150px;font-size:64px">${e}</div><h2>${esc(l.name)}</h2><p class="mut">${esc(l.type)} · ${esc(l.area)}, Accra · ${l.rooms>0?l.rooms+" available":"Currently full"}</p><p class="price">${money(l)}</p><div class="am">${(l.am||[]).map(a=>`<span>${AM[a]||""}</span>`).join("")}</div><p>${esc(l.desc)}</p><p><a class="btn" style="text-decoration:none;display:inline-block" data-wa="${l.id}" href="https://wa.me/${wa(l.phone)}" target="_blank" rel="noopener">Chat on WhatsApp</a> <button class="btn alt" style="color:#13221c" id="vm">Show on map</button>${(!staff&&(!acct||acct.role==="tenant"))?` <button class="btn alt" style="color:#13221c" id="vs">${saved.has(String(l.id))?"♥ Saved":"♡ Save"}</button>`:""}</p><p class="mut">Visit the place and meet the landlord before you pay anything.</p>`;
-  $("#v .x").onclick=shut;$("#vm").onclick=()=>{shut();pick(l.area);$("#mapw").scrollIntoView({behavior:"smooth",block:"center"})};$("#vs")&&($("#vs").onclick=()=>toggleSave(l.id));open("#m-view")}
+  $("#v").innerHTML=`<button class="x" data-x>×</button><div class="pic" id="vg" style="background:${sImg(l.cover)?`url(${sImg(l.cover)}) center/cover`:c};border-radius:16px;height:${sImg(l.cover)?"230px":"150px"};font-size:64px">${sImg(l.cover)?"":e}</div><h2>${esc(l.name)}</h2><p class="mut">${esc(l.type)} · ${esc(l.area)}, Accra · ${l.rooms>0?l.rooms+" available":"Currently full"}</p><p class="price">${money(l)}</p><div class="am">${(l.am||[]).map(a=>`<span>${AM[a]||""}</span>`).join("")}</div><p>${esc(l.desc)}</p><p><a class="btn" style="text-decoration:none;display:inline-block" data-wa="${l.id}" href="https://wa.me/${wa(l.phone)}" target="_blank" rel="noopener">Chat on WhatsApp</a> <button class="btn alt" style="color:#13221c" id="vm">Show on map</button>${(!staff&&(!acct||acct.role==="tenant"))?` <button class="btn alt" style="color:#13221c" id="vs">${saved.has(String(l.id))?"♥ Saved":"♡ Save"}</button>`:""}</p><p class="mut">Visit the place and meet the landlord before you pay anything.</p>`;
+  $("#v .x").onclick=shut;$("#vm").onclick=()=>{shut();pick(l.area);$("#mapw").scrollIntoView({behavior:"smooth",block:"center"})};$("#vs")&&($("#vs").onclick=()=>toggleSave(l.id));open("#m-view");loadGallery(l)}
 
 /* add a place (landlord => pending, admin => live) */
-function form(){$("#fc").innerHTML=`<h2>${isAdmin?"Add a place":"List your place"}</h2><p class="mut">Every new listing is saved as pending until an authorised admin approves it.</p>
+function form(){formPhotos=[];formCover="";$("#fc").innerHTML=`<h2>${isAdmin?"Add a place":"List your place"}</h2><p class="mut">Every new listing is saved as pending until an authorised admin approves it.</p>
 <div class="row"><div><label>Name</label><input id="fn"></div><div><label>Type</label><select id="ft">${Object.keys(TY).map(t=>`<option>${t}</option>`).join("")}</select></div></div>
 <div class="row"><div><label>Area</label><select id="fa">${Object.keys(AR).map(a=>`<option>${a}</option>`).join("")}</select></div><div><label>WhatsApp number</label><input id="fp" type="tel" placeholder="0241234567" value="${esc((acct&&acct.phone)||"")}"></div></div>
 <div class="row"><div><label>Price (GH₵)</label><input id="fpr" type="number" min="1"></div><div><label>Per</label><select id="fe"><option>month</option><option>year</option><option>semester</option><option>night</option></select></div></div>
 <label>Rooms available</label><input id="fr" type="number" value="1" min="0"><label>What’s included</label><div style="display:flex;flex-wrap:wrap;gap:6px">${Object.entries(AM).map(([k,v])=>`<label style="font-weight:400;margin:0;background:var(--bg);padding:5px 10px;border-radius:99px"><input type="checkbox" style="width:auto" value="${k}"> ${v}</label>`).join("")}</div>
-<label>Description</label><textarea id="fd" rows="3"></textarea><p><button class="btn" id="fs">Publish listing</button></p>`;
-  $("#fs").onclick=()=>{const g=i=>$(i).value.trim();if(!g("#fn")||!+g("#fpr")||g("#fp").replace(/\D/g,"").length<10)return toast("Add a name, a price and a 10-digit phone number");
-    const listing={id:"u"+Date.now(),name:g("#fn"),type:g("#ft"),area:g("#fa"),phone:g("#fp"),price:+g("#fpr"),per:g("#fe"),rooms:+g("#fr")||0,am:$$("#fc input[type=checkbox]:checked").map(i=>i.value),desc:g("#fd"),status:"pending",contacts:0,ownerUid:acct.uid,ownerEmail:acct.email};L.push(listing);save();shut();draw();if(firestoreReady){toast("Sending listing to Firestore…");cloudCreateListing(listing).then(()=>toast("Listing submitted. Track it under your account.")).catch(err=>{console.error("Firestore create failed:",err);L=L.filter(x=>x!==listing);draw();toast("Couldn’t submit your listing. Check you’re signed in as a landlord or agent.")})}else toast("Firebase unavailable. Listing saved locally only.")};open("#m-form")}
+<label>Description</label><textarea id="fd" rows="3"></textarea><label>Photos of the place <span class="mut">(at least 3, up to 6. The first one is the cover.)</span></label><input id="fph" type="file" accept="image/*" multiple><div id="fphb" style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0"></div><p id="fphm" class="mut"></p><p><button class="btn" id="fs">Submit for review</button></p>`;
+  initPhotos();$("#fs").onclick=()=>{const g=i=>$(i).value.trim();if(!g("#fn")||!+g("#fpr")||g("#fp").replace(/\D/g,"").length<10)return toast("Add a name, a price and a 10-digit phone number");
+    if(formPhotos.length<3)return toast("Add at least 3 photos of the place so it can be reviewed.");if(!formCover)return toast("Couldn’t prepare your photos. Try adding them again.");
+    const listing={id:"u"+Date.now(),name:g("#fn"),type:g("#ft"),area:g("#fa"),phone:g("#fp"),price:+g("#fpr"),per:g("#fe"),rooms:+g("#fr")||0,am:$$("#fc input[type=checkbox]:checked").map(i=>i.value),desc:g("#fd"),status:"pending",contacts:0,ownerUid:acct.uid,ownerEmail:acct.email,cover:formCover,photoCount:formPhotos.length};L.push(listing);save();shut();draw();if(firestoreReady){toast("Uploading your listing and photos…");cloudCreateListing(listing,formPhotos.slice()).then(()=>toast("Submitted for review. Track it under your account.")).catch(err=>{console.error("Firestore create failed:",err);L=L.filter(x=>x!==listing);draw();toast("Couldn’t submit your listing. Check you’re signed in as a landlord or agent.")})}else toast("Firebase unavailable. Listing saved locally only.")};open("#m-form")}
 
 
+/* photos: shrunk in the browser, stored as JPEG text in Firestore (no paid Storage needed) */
+function sImg(x){return typeof x==="string"&&/^data:image\/jpeg;base64,[A-Za-z0-9+\/=]+$/.test(x)?x:""}
+let formPhotos=[],formCover="";
+function shrink(src,max,q0,cap){return new Promise((res,rej)=>{const im=new Image();
+  im.onload=()=>{if(src.startsWith("blob:"))URL.revokeObjectURL(src);const w=im.naturalWidth,h=im.naturalHeight;let sc=Math.min(1,max/Math.max(w,h)),q=q0,out="";
+    for(let i=0;i<7;i++){const cw=Math.max(1,Math.round(w*sc)),ch=Math.max(1,Math.round(h*sc)),cv=document.createElement("canvas");cv.width=cw;cv.height=ch;const cx=cv.getContext("2d");cx.fillStyle="#fff";cx.fillRect(0,0,cw,ch);cx.drawImage(im,0,0,cw,ch);out=cv.toDataURL("image/jpeg",q);if(out.length<=cap)break;q=Math.max(.45,q-.08);sc*=.85}
+    out.length<=cap?res(out):rej(new Error("too big"))};
+  im.onerror=()=>{if(src.startsWith("blob:"))URL.revokeObjectURL(src);rej(new Error("unreadable"))};im.src=src})}
+function initPhotos(){
+  const inp=$("#fph"),box=$("#fphb"),msg=$("#fphm");
+  const setCover=async()=>{formCover=formPhotos[0]?await shrink(formPhotos[0],480,.7,45000).catch(()=>""):""};
+  const render=()=>{
+    box.innerHTML=formPhotos.map((d,i)=>`<div style="position:relative;width:84px;height:84px"><img src="${d}" alt="" style="width:84px;height:84px;object-fit:cover;border-radius:10px"><button type="button" data-ph-rm="${i}" aria-label="Remove photo" style="position:absolute;top:2px;right:2px;border:0;border-radius:99px;width:22px;height:22px;background:#000a;color:#fff;cursor:pointer">×</button>${i===0?'<span style="position:absolute;left:4px;bottom:4px;background:#0d3b2eb0;color:#fff;font-size:11px;padding:1px 6px;border-radius:99px">Cover</span>':""}</div>`).join("");
+    msg.textContent=formPhotos.length<3?formPhotos.length+" of 3 required photos added":formPhotos.length+" photos added ✓";msg.style.color=formPhotos.length<3?"#b3261e":"#1b6b4a";
+    $$("[data-ph-rm]").forEach(b=>b.onclick=async()=>{formPhotos.splice(+b.dataset.phRm,1);await setCover();render()})};
+  inp.onchange=async()=>{const files=[...inp.files];inp.value="";if(!files.length)return;msg.textContent="Processing photos…";msg.style.color="";
+    for(const f of files){if(formPhotos.length>=6){toast("Up to 6 photos.");break}
+      if(!/^image\//.test(f.type)){toast("Only photos can be added.");continue}
+      try{formPhotos.push(await shrink(URL.createObjectURL(f),1000,.72,240000))}catch(e){console.error(e);toast("Couldn’t read “"+f.name+"”. Try a JPG or PNG.")}}
+    await setCover();render()};
+  render()}
+async function loadGallery(l){
+  if(!db||!l.photoCount)return;
+  try{const sn=await db.collection("listings").doc(String(l.id)).collection("photos").orderBy("order").get(),g=$("#vg");if(!g||!sn.docs.length)return;
+    const imgs=sn.docs.map(d=>sImg(d.data().data)).filter(Boolean);if(!imgs.length)return;
+    g.style.cssText="display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;border-radius:16px;height:auto;background:none";
+    g.innerHTML=imgs.map((u,i)=>`<img src="${u}" alt="Photo ${i+1} of ${esc(l.name)}" style="height:230px;width:auto;max-width:92%;flex:0 0 auto;scroll-snap-align:start;border-radius:12px;object-fit:cover">`).join("")}
+  catch(e){console.info("Photos not loaded:",e.code)}}
+async function reviewPhotos(id){
+  if(!staff)return;const l=L.find(x=>String(x.id)===String(id));if(!l)return;
+  $("#ac").innerHTML=`<h2>${esc(l.name)}</h2><p class="mut">${esc(l.type)} · ${esc(l.area)} · ${money(l)} · ${l.rooms>0?l.rooms+" available":"full"}${l.ownerEmail?" · by "+esc(l.ownerEmail):""}</p><p>${esc(l.desc||"")}</p><p><button class="btn alt" style="color:#13221c" id="rv-back">← Back</button> ${l.status!=="live"?`<button class="btn sm" id="rv-ok">Approve</button>`:`<button class="btn alt sm" style="color:#13221c" id="rv-hide">Hide</button>`}</p><div id="rv-g" class="mut">Loading photos…</div>`;
+  $("#rv-back").onclick=()=>adm(curTab);
+  const upd=st=>cloudUpdateListing(l.id,{status:st}).then(()=>{toast(st==="live"?"Approved":"Hidden");adm(curTab)}).catch(err=>{console.error(err);toast("Update was refused by the server.")});
+  $("#rv-ok")&&($("#rv-ok").onclick=()=>upd("live"));$("#rv-hide")&&($("#rv-hide").onclick=()=>upd("hidden"));
+  try{const sn=await db.collection("listings").doc(String(l.id)).collection("photos").orderBy("order").get(),g=$("#rv-g");if(!g)return;
+    const imgs=sn.docs.map(d=>sImg(d.data().data)).filter(Boolean);
+    g.innerHTML=imgs.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">`+imgs.map((u,i)=>`<img src="${u}" alt="Photo ${i+1} of ${esc(l.name)}" style="width:100%;border-radius:12px;display:block">`).join("")+`</div>`:"This listing has no photos."}
+  catch(err){console.error(err);const g=$("#rv-g");if(g)g.textContent="Couldn’t load the photos."}}
 /* accounts: everyone signs in through Firebase Auth. Role decides what they see.
    admin = set in the Firestore Rules; moderator = doc in "roles"; landlord/tenant = doc in "users". The server enforces it all. */
 const unionById=(a,b)=>{const m=new Map();a.concat(b).forEach(x=>m.set(String(x.id),x));return[...m.values()]};
@@ -414,7 +459,7 @@ function ll(){
   const dt=l=>{try{return l.createdAt&&l.createdAt.toDate?l.createdAt.toDate().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}):""}catch(e){return ""}};
   const note=l=>l.status==="pending"?"Waiting for approval. It will appear on the site once approved.":l.status==="hidden"?"Hidden by the admin. It isn’t showing on the site.":"Live on the site.";
   $("#ac").innerHTML=`<h2>My listings</h2><p class="mut">Signed in as ${esc(acct.name||acct.email)} · landlord or agent</p><div class="stats"><div><b>${mine.length}</b>Total</div><div><b>${c("live")}</b>Live</div><div><b>${c("pending")}</b>Awaiting approval</div><div><b>${taps}</b>WhatsApp taps</div></div><div class="tabs"><button class="btn sea" id="ll-add">+ List a place</button><button class="btn alt" style="color:#13221c" id="ao">Sign out</button></div>`+
-  (mine.map(l=>`<div class="li"><div><b>${esc(l.name)}</b> <span class="st ${l.status}">${l.status==="live"?"live":l.status==="pending"?"awaiting approval":"hidden"}</span><div class="mut">${esc(l.type)} · ${esc(l.area)} · ${money(l)} · ${l.rooms>0?l.rooms+" available":"full"}</div><div class="mut">${note(l)} ${dt(l)?"Submitted "+dt(l)+". ":""}WhatsApp taps: ${l.contacts||0}</div></div><button class="btn alt sm" style="color:#13221c" data-lo="full" data-i="${l.id}">${l.rooms>0?"Mark full":"Mark available"}</button><button class="btn bad sm" data-lo="del" data-i="${l.id}">Delete</button></div>`).join("")||`<p class="mut">You haven’t listed anything yet. Tap “List a place” to add your first one.</p>`);
+  (mine.map(l=>`<div class="li"><div><b>${esc(l.name)}</b> <span class="st ${l.status}">${l.status==="live"?"live":l.status==="pending"?"awaiting approval":"hidden"}</span><div class="mut">${esc(l.type)} · ${esc(l.area)} · ${money(l)} · ${l.rooms>0?l.rooms+" available":"full"}</div><div class="mut">${note(l)} ${l.photoCount?l.photoCount+" photos. ":""}${dt(l)?"Submitted "+dt(l)+". ":""}WhatsApp taps: ${l.contacts||0}</div></div><button class="btn alt sm" style="color:#13221c" data-lo="full" data-i="${l.id}">${l.rooms>0?"Mark full":"Mark available"}</button><button class="btn bad sm" data-lo="del" data-i="${l.id}">Delete</button></div>`).join("")||`<p class="mut">You haven’t listed anything yet. Tap “List a place” to add your first one.</p>`);
   $("#ll-add").onclick=()=>{shut();form()};$("#ao").onclick=doSignOut;
   $$("[data-lo]").forEach(b=>b.onclick=()=>{const l=mine.find(x=>String(x.id)===b.dataset.i);if(!l)return;
     if(b.dataset.lo==="del"){if(!confirm("Delete this listing?"))return;cloudDeleteListing(l.id).then(()=>toast("Deleted")).catch(err=>{console.error(err);toast("Couldn’t delete it.")});return}
@@ -424,7 +469,7 @@ function ll(){
 function adm(tab="all"){curTab=tab;if(!staff)return acctOpen();
   const isA=staff.role==="admin",c=n=>L.filter(l=>l.status===n).length,sh=tab==="all"?L:L.filter(l=>l.status===tab);
   const tabs=[["all","All"],["pending","Awaiting approval"],["live","Live"],["hidden","Hidden"]].concat(isA?[["people","People ("+peopleList.length+")"],["mods","Moderators"]]:[]);
-  const list=sh.map(l=>`<div class="li"><div><b>${esc(l.name)}</b> <span class="st ${l.status}">${l.status==="live"?"live":l.status==="pending"?"awaiting approval":"hidden"}</span><div class="mut">${esc(l.type)} · ${esc(l.area)} · ${money(l)} · ${l.rooms>0?l.rooms+" available":"full"}${l.ownerEmail?" · by "+esc(l.ownerEmail):""}${l.contacts?" · "+l.contacts+" WhatsApp taps":""}</div></div>${l.status!=="live"?`<button class="btn sm" data-o="live" data-i="${l.id}">Approve</button>`:`<button class="btn alt sm" style="color:#13221c" data-o="hidden" data-i="${l.id}">Hide</button>`}<button class="btn alt sm" style="color:#13221c" data-o="full" data-i="${l.id}">${l.rooms>0?"Mark full":"Mark available"}</button>${isA?`<button class="btn bad sm" data-o="del" data-i="${l.id}">Delete</button>`:""}</div>`).join("")||`<p class="mut">Nothing here.</p>`;
+  const list=sh.map(l=>`<div class="li"><div><b>${esc(l.name)}</b> <span class="st ${l.status}">${l.status==="live"?"live":l.status==="pending"?"awaiting approval":"hidden"}</span><div class="mut">${esc(l.type)} · ${esc(l.area)} · ${money(l)} · ${l.rooms>0?l.rooms+" available":"full"}${l.ownerEmail?" · by "+esc(l.ownerEmail):""}${l.contacts?" · "+l.contacts+" WhatsApp taps":""}</div></div>${l.photoCount?`<button class="btn alt sm" style="color:#13221c" data-ph="${l.id}">Photos (${l.photoCount})</button>`:""}${l.status!=="live"?`<button class="btn sm" data-o="live" data-i="${l.id}">Approve</button>`:`<button class="btn alt sm" style="color:#13221c" data-o="hidden" data-i="${l.id}">Hide</button>`}<button class="btn alt sm" style="color:#13221c" data-o="full" data-i="${l.id}">${l.rooms>0?"Mark full":"Mark available"}</button>${isA?`<button class="btn bad sm" data-o="del" data-i="${l.id}">Delete</button>`:""}</div>`).join("")||`<p class="mut">Nothing here.</p>`;
   const modIds=new Set(modList.map(m=>m.uid));
   const pdt=p=>{try{return p.createdAt&&p.createdAt.toDate?p.createdAt.toDate().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}):""}catch(e){return ""}};
   const people=peopleList.slice().sort((x,y)=>((y.createdAt&&y.createdAt.seconds)||0)-((x.createdAt&&x.createdAt.seconds)||0)).filter(x=>x.uid!==staff.uid);
@@ -434,7 +479,7 @@ function adm(tab="all"){curTab=tab;if(!staff)return acctOpen();
   $("#ac").innerHTML=`<h2>${isA?"Admin":"Moderator"} panel</h2><p class="mut">Signed in as ${esc(staff.email||"")}</p><div class="stats"><div><b>${L.length}</b>Total</div><div><b>${c("live")}</b>Live</div><div><b>${c("pending")}</b>Awaiting approval</div><div><b>${c("hidden")}</b>Hidden</div></div>
 <div class="tabs">${tabs.map(t=>`<button class="btn ${tab===t[0]?"on":""}" data-t="${t[0]}">${t[1]}</button>`).join("")}<button class="btn sea" id="aa">+ Add a place</button><button class="btn alt" style="color:#13221c" id="ao">Sign out</button></div>`+(tab==="mods"&&isA?mods:tab==="people"&&isA?peopleHTML:list);
   $$("[data-t]").forEach(b=>b.onclick=()=>adm(b.dataset.t));$("#aa").onclick=()=>{shut();form()};
-  $("#ao").onclick=doSignOut;
+  $("#ao").onclick=doSignOut;$$("[data-ph]").forEach(b=>b.onclick=()=>reviewPhotos(b.dataset.ph));
   $$("[data-o]").forEach(b=>b.onclick=()=>{const l=L.find(x=>x.id===b.dataset.i),o=b.dataset.o;if(!l)return;
     if(o==="del"){if(!isA)return;if(!confirm("Delete this listing?"))return;cloudDeleteListing(l.id).then(()=>toast("Deleted")).catch(err=>{console.error(err);toast("Delete was refused by the server.")});return}
     const fields=o==="full"?{rooms:l.rooms>0?0:1}:{status:o};
