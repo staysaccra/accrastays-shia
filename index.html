@@ -147,6 +147,14 @@ header{padding-top:calc(10px + env(safe-area-inset-top));padding-left:max(5vw,en
 #inst{position:fixed;left:12px;right:112px;bottom:calc(14px + env(safe-area-inset-bottom));z-index:3800;display:none;gap:10px;align-items:center;padding:10px 12px;border-radius:20px;border:1px solid #fff;background:linear-gradient(145deg,rgba(255,255,255,.88),rgba(255,255,255,.62));-webkit-backdrop-filter:blur(22px) saturate(180%);backdrop-filter:blur(22px) saturate(180%);box-shadow:0 14px 40px rgba(0,20,12,.3),inset 0 1px 1px #fff;font-size:14px}
 #inst.show{display:flex}#inst img{width:42px;height:42px;border-radius:10px;flex:none}#inst div{flex:1;min-width:0}#inst b{display:block;font-family:'Bricolage Grotesque',sans-serif}
 #inst .x{position:static;width:30px;height:30px;flex:none;font-size:18px}
+#instov{position:fixed;inset:0;z-index:5200;display:none;place-items:center;padding:18px;background:rgba(6,30,22,.6);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}#instov.show{display:grid}
+#instov .ib{width:min(380px,100%);text-align:center;padding:24px 20px;border-radius:28px;border:1px solid #fff;background:linear-gradient(145deg,rgba(255,255,255,.92),rgba(255,255,255,.75));box-shadow:0 30px 80px rgba(0,20,12,.45)}
+#instov img{width:76px;height:76px;border-radius:18px;box-shadow:0 8px 20px rgba(0,0,0,.25)}#instov h3{font-size:22px;margin:12px 0 4px}#instov p{margin:0 0 12px;color:var(--mut)}
+.pbar{height:10px;border-radius:9px;background:var(--line);overflow:hidden;margin:8px 0 14px}.pbar i{display:block;height:100%;width:0;border-radius:9px;background:linear-gradient(90deg,var(--gold),#1a9a5a);transition:width .6s ease}
+.pbar i.pulse{animation:ipulse 1.2s ease-in-out infinite alternate}@keyframes ipulse{to{opacity:.55}}
+#ovs{text-align:left;padding-left:22px;margin:0 0 14px}#ovs li{margin:6px 0}
+#ova{position:fixed;left:50%;bottom:10px;font-size:44px;transform:translateX(-50%);animation:abob .8s ease-in-out infinite alternate;display:none}#ova.pad{left:auto;right:30px;top:12px;bottom:auto;transform:rotate(180deg)}
+#instov.show #ova{display:block}#ova:empty{display:none}@keyframes abob{to{margin-bottom:12px}}
 </style></head><body>
 <div class="kente"></div>
 <header><div class="logo">Akwaaba<b>Stays</b></div>
@@ -698,9 +706,24 @@ setTimeout(()=>seen?home():show(0),900);
   const hide=(remember)=>{bar.classList.remove("show");if(remember)try{localStorage.setItem(key,Date.now())}catch(e){}};
   const show=()=>{const say=document.getElementById("say");if(say&&say.classList.contains("show"))return setTimeout(show,6000);bar.classList.add("show")};
   document.getElementById("instx").onclick=()=>hide(true);
+  /* install screen: Android = real one-tap install with live status; iPhone = guided steps (Apple gives websites no install button) */
+  const ov=document.createElement("div");ov.id="instov";
+  ov.innerHTML='<div class="ib"><img src="icons/icon-192.png" alt=""><h3 id="ovt"></h3><p id="ovp"></p><div class="pbar"><i id="ovb"></i></div><ol id="ovs"></ol><button class="btn sm" id="ovc">Close</button></div><div id="ova">⬇️</div>';
+  document.body.appendChild(ov);const $o=i=>document.getElementById(i);
+  const ovShow=(t,p,pct,steps,arrow)=>{$o("ovt").textContent=t;$o("ovp").textContent=p||"";$o("ovb").style.width=(pct||0)+"%";$o("ovb").parentNode.style.display=pct==null?"none":"block";
+    $o("ovs").innerHTML=(steps||[]).map(x=>"<li>"+x+"</li>").join("");$o("ova").className=arrow||"";ov.classList.add("show")};
+  $o("ovc").onclick=()=>ov.classList.remove("show");let installed=false;
   document.getElementById("insti").onclick=async()=>{
-    if(dp){dp.prompt();try{await dp.userChoice}catch(e){}dp=null;hide(true)}
-    else document.getElementById("instt").textContent=ios?"Tap the Share button ⬆️ in Safari, then “Add to Home Screen”.":"Open your browser menu and choose “Install app” or “Add to Home screen”."};
+    if(dp){ovShow("Installing Akwaaba Stays","Tap Install on the box your phone shows.",25);$o("ovb").classList.add("pulse");
+      dp.prompt();let r={};try{r=await dp.userChoice}catch(e){}dp=null;
+      if(r.outcome==="accepted"){ovShow("Adding to your home screen…","Almost there.",70);
+        for(let i=0;i<20&&!installed;i++)await new Promise(z=>setTimeout(z,300));
+        ovShow("Installed ✓","Find Akwaaba Stays on your home screen.",100);setTimeout(()=>{ov.classList.remove("show");hide(true)},2600)}
+      else{ov.classList.remove("show")}}
+    else if(ios){const pad=/ipad/i.test(navigator.userAgent)||(navigator.platform==="MacIntel");
+      ovShow("Add Akwaaba to your home screen","Apple only lets you do this yourself in Safari. It takes 3 taps:",null,["Tap the <b>Share</b> button ⬆️ "+(pad?"at the top right":"at the bottom of Safari"),"Scroll down and tap <b>Add to Home Screen</b>","Tap <b>Add</b>. Done!"],pad?"pad":"")}
+    else ovShow("Install the app","Open your browser menu (⋮) and choose “Install app” or “Add to Home screen”.",null)};
+  addEventListener("appinstalled",()=>{installed=true});
   addEventListener("beforeinstallprompt",e=>{e.preventDefault();dp=e;setTimeout(show,9000)});
   addEventListener("appinstalled",()=>hide(true));
   if(ios)setTimeout(show,12000)
