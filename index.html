@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Akwaaba"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Akwaaba Stays – hostels, rooms & apartments in Accra</title>
 <meta name="theme-color" content="#0d3b2e">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230d3b2e'/%3E%3Cpath d='M16 5l2.6 7h7.4l-6 4.5 2.3 7.5-6.3-4.6-6.3 4.6 2.3-7.5-6-4.5h7.4z' fill='%23f4b81a'/%3E%3C/svg%3E">
@@ -135,6 +138,15 @@ body.orbit-open{overflow:hidden}
 #man::after{content:"";position:absolute;left:14%;right:14%;bottom:-2px;height:12px;border-radius:50%;background:radial-gradient(ellipse,rgba(0,0,0,.35),transparent 70%);z-index:-1}
 #man.d3 span{display:none}#man i{top:-16px;left:0;font-size:12px}
 .lock{background:linear-gradient(135deg,rgba(244,184,26,.2),rgba(255,255,255,.55));border:2px dashed var(--gold);border-radius:16px;padding:12px 14px;margin:10px 0}.lock p{margin:0 0 8px}
+/* app mode: notches, home bar, no iOS zoom, no rubber-band */
+html{-webkit-text-size-adjust:100%}body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
+input,select,textarea{font-size:16px}
+header{padding-top:calc(10px + env(safe-area-inset-top));padding-left:max(5vw,env(safe-area-inset-left));padding-right:max(5vw,env(safe-area-inset-right))}
+.modal{padding-top:calc(14px + env(safe-area-inset-top));padding-bottom:calc(14px + env(safe-area-inset-bottom))}
+#say{bottom:calc(14px + env(safe-area-inset-bottom))}footer{padding-bottom:calc(24px + env(safe-area-inset-bottom))}
+#inst{position:fixed;left:12px;right:112px;bottom:calc(14px + env(safe-area-inset-bottom));z-index:3800;display:none;gap:10px;align-items:center;padding:10px 12px;border-radius:20px;border:1px solid #fff;background:linear-gradient(145deg,rgba(255,255,255,.88),rgba(255,255,255,.62));-webkit-backdrop-filter:blur(22px) saturate(180%);backdrop-filter:blur(22px) saturate(180%);box-shadow:0 14px 40px rgba(0,20,12,.3),inset 0 1px 1px #fff;font-size:14px}
+#inst.show{display:flex}#inst img{width:42px;height:42px;border-radius:10px;flex:none}#inst div{flex:1;min-width:0}#inst b{display:block;font-family:'Bricolage Grotesque',sans-serif}
+#inst .x{position:static;width:30px;height:30px;flex:none;font-size:18px}
 </style></head><body>
 <div class="kente"></div>
 <header><div class="logo">Akwaaba<b>Stays</b></div>
@@ -667,4 +679,30 @@ setTimeout(()=>seen?home():show(0),900);
  const sc=(s,b)=>$(s).scrollIntoView({behavior:red?"auto":"smooth",block:b});
  $$("[data-dest]").forEach(c=>c.onclick=()=>{const k=c.dataset.dest;cl();setTimeout(()=>{({stays:()=>sc(".split","start"),map:()=>sc("#mapw","center"),area:()=>sc("#car","center"),guide:()=>window.guide(),list:listOpen,account:()=>acctOpen()})[k]()},red?0:240)});
  if(!red&&matchMedia("(pointer:fine)").matches)$$(".orbit-card").forEach(c=>{c.onpointermove=e=>{const r=c.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;c.style.transform=`perspective(850px) rotateX(${-y*9}deg) rotateY(${x*11}deg) translateY(-3px)`};c.onpointerleave=()=>c.style.transform=""})})();
+
+/* ---- Installable app: PWA install prompt, offline shell, native-app helpers ---- */
+(()=>{
+  const native=!!(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform());
+  if(native){const P=Capacitor.Plugins||{};
+    try{P.StatusBar&&P.StatusBar.setStyle({style:"DARK"});setTimeout(()=>P.SplashScreen&&P.SplashScreen.hide(),500);
+      P.App&&P.App.addListener("backButton",()=>{const m=document.querySelector(".modal.show");if(m){shut();return}const oc=document.querySelector(".orbit-nav.open");if(oc){document.getElementById("orbitClose").click();return}P.App.exitApp()})}catch(e){}
+    return}
+  if("serviceWorker" in navigator&&/^https?:$/.test(location.protocol))addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+  const standalone=matchMedia("(display-mode: standalone)").matches||navigator.standalone;if(standalone)return;
+  const ios=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+  let dp=null,key="akw_inst",seen=0;try{seen=+localStorage.getItem(key)||0}catch(e){}
+  if(Date.now()-seen<7*864e5)return;
+  const bar=document.createElement("div");bar.id="inst";
+  bar.innerHTML='<img src="icons/icon-192.png" alt=""><div><b>Get the Akwaaba app</b><span class="mut" id="instt">Open it from your home screen, like any app.</span></div><button class="btn sm" id="insti">Install</button><button class="x" aria-label="Dismiss" id="instx">×</button>';
+  document.body.appendChild(bar);
+  const hide=(remember)=>{bar.classList.remove("show");if(remember)try{localStorage.setItem(key,Date.now())}catch(e){}};
+  const show=()=>{const say=document.getElementById("say");if(say&&say.classList.contains("show"))return setTimeout(show,6000);bar.classList.add("show")};
+  document.getElementById("instx").onclick=()=>hide(true);
+  document.getElementById("insti").onclick=async()=>{
+    if(dp){dp.prompt();try{await dp.userChoice}catch(e){}dp=null;hide(true)}
+    else document.getElementById("instt").textContent=ios?"Tap the Share button ⬆️ in Safari, then “Add to Home Screen”.":"Open your browser menu and choose “Install app” or “Add to Home screen”."};
+  addEventListener("beforeinstallprompt",e=>{e.preventDefault();dp=e;setTimeout(show,9000)});
+  addEventListener("appinstalled",()=>hide(true));
+  if(ios)setTimeout(show,12000)
+})();
 </script></body></html>
