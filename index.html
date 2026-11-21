@@ -177,15 +177,17 @@ body.orbit-open{overflow:hidden}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script>
 const LF=window.L; /* Leaflet, kept under its own name because L is the listings array */
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 // Firebase project connection for this single-file website.
 const firebaseConfig={apiKey:"AIzaSyAwuLIepe09S_4Hhju6lvgxp6mmpWAFSdw",authDomain:"accrastays-b6464.firebaseapp.com",projectId:"accrastays-b6464",storageBucket:"accrastays-b6464.firebasestorage.app",messagingSenderId:"598953379173",appId:"1:598953379173:web:0a7dfc1a4c5bee3b188d8c",measurementId:"G-151WTL89X4"};
-let db=null,firestoreReady=false;
-try{if(window.firebase?.initializeApp&&window.firebase?.firestore){if(!firebase.apps.length)firebase.initializeApp(firebaseConfig);db=firebase.firestore();firestoreReady=true;console.info("Akwaaba Stays: Firebase connected");}else console.warn("Firebase SDK did not load; using local storage.");}catch(e){console.error("Firebase initialization failed:",e);}
-const ADMIN_PIN="accra-admin"; /* demo only; online admin actions require Firebase Authentication and secure Rules */
+let db=null,auth=null,firestoreReady=false;
+try{if(window.firebase?.initializeApp&&window.firebase?.firestore){if(!firebase.apps.length)firebase.initializeApp(firebaseConfig);db=firebase.firestore();auth=firebase.auth?firebase.auth():null;firestoreReady=true;console.info("Akwaaba Stays: Firebase connected");}else console.warn("Firebase SDK did not load; using local storage.");}catch(e){console.error("Firebase initialization failed:",e);}
+/* Admin + moderator access is real Firebase Authentication. The server (Firestore Security Rules) decides who may do what; this page only mirrors it. */
+let staff=null,modList=[],lastLive=[],staffUnsub=null;
 /* area name, x, y on the 800x520 map */
 const AR={"Dansoman":[110,360],"Kaneshie":[225,305],"Circle":[320,245],"Achimota":[190,165],"Osu":[400,372],"Labone":[470,345],"Legon":[520,125],"East Legon":[585,215],"Madina":[665,115],"Spintex":[675,305],"Tema":[740,345]};
 const TY={"Hostel":["🛏️","#bfe3cf"],"Self-contain":["🚪","#fbe1a1"],"Single room":["🏠","#f4c4c9"],"Apartment":["🏢","#c9dcf2"],"Guest house":["🏡","#e3d3f0"]};
@@ -200,7 +202,7 @@ const SAMPLE=[
 {id:"s7",name:"Spintex Comfort Self-contain",type:"Self-contain",area:"Spintex",price:1500,per:"month",rooms:4,am:["water","light","wc","park"].filter(a=>AM[a]),desc:"Newly built, with ample parking and a quiet street.",phone:"233200000007",status:"live"},
 {id:"s8",name:"Sea Breeze Room",type:"Single room",area:"Dansoman",price:600,per:"month",rooms:2,am:["water","fan","sec"],desc:"Breezy room in a family compound, 10 minutes from the main road.",phone:"233200000008",status:"live"},
 {id:"s9",name:"Tema Community 9 Studio",type:"Apartment",area:"Tema",price:2200,per:"month",rooms:1,am:["wifi","water","sec"],desc:"Awaiting admin approval.",phone:"233200000009",status:"pending"}];
-let mem=null;const save=()=>{try{localStorage.setItem("akw_l",JSON.stringify(L))}catch(e){mem=JSON.stringify(L)}};
+let mem=null;const save=()=>{if(staff)return;try{localStorage.setItem("akw_l",JSON.stringify(L))}catch(e){mem=JSON.stringify(L)}};
 const cloudCreateListing=async listing=>{if(!db)throw new Error("Firestore unavailable");await db.collection("listings").doc(String(listing.id)).set({...listing,createdAt:firebase.firestore.FieldValue.serverTimestamp(),updatedAt:firebase.firestore.FieldValue.serverTimestamp()});};
 const cloudUpdateListing=async(id,fields)=>{if(!db)throw new Error("Firestore unavailable");await db.collection("listings").doc(String(id)).set({...fields,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});};
 const cloudDeleteListing=async id=>{if(!db)throw new Error("Firestore unavailable");await db.collection("listings").doc(String(id)).delete();};
@@ -289,15 +291,56 @@ function form(){$("#fc").innerHTML=`<h2>${isAdmin?"Add a place":"List your place
     const listing={id:"u"+Date.now(),name:g("#fn"),type:g("#ft"),area:g("#fa"),phone:g("#fp"),price:+g("#fpr"),per:g("#fe"),rooms:+g("#fr")||0,am:$$("#fc input[type=checkbox]:checked").map(i=>i.value),desc:g("#fd"),status:"pending"};L.push(listing);save();shut();draw();if(firestoreReady){toast("Sending listing to Firestore…");cloudCreateListing(listing).then(()=>toast("Listing submitted online for admin approval.")).catch(err=>{console.error("Firestore create failed:",err);toast("Online save blocked by Firestore Rules. Kept locally on this device.")})}else toast("Firebase unavailable. Listing saved locally only.")};open("#m-form")}
 
 
-/* admin */
-const admOpen=()=>{if(isAdmin)return adm();$("#ac").innerHTML=`<h2>Admin sign-in</h2><p class="mut">Demo passcode: <b>${ADMIN_PIN}</b></p><label>Passcode</label><input id="ap" type="password"><p><button class="btn" id="al">Sign in</button></p>`;
-  $("#al").onclick=()=>{if($("#ap").value===ADMIN_PIN){isAdmin=true;$("#nadmT").textContent="Admin panel";adm()}else toast("Wrong passcode")};$("#ap").onkeydown=e=>{if(e.key==="Enter")$("#al").click()};open("#m-adm")};
-function adm(tab="all"){const c=n=>L.filter(l=>l.status===n).length,sh=tab==="all"?L:L.filter(l=>l.status===tab);
-  $("#ac").innerHTML=`<h2>Admin panel</h2><div class="stats"><div><b>${L.length}</b>Total</div><div><b>${c("live")}</b>Live</div><div><b>${c("pending")}</b>Awaiting approval</div><div><b>${c("hidden")}</b>Hidden</div></div>
-<div class="tabs">${[["all","All"],["pending","Awaiting approval"],["live","Live"],["hidden","Hidden"]].map(t=>`<button class="btn ${tab===t[0]?"on":""}" data-t="${t[0]}">${t[1]}</button>`).join("")}<button class="btn sea" id="aa">+ Add a place</button><button class="btn alt" style="color:#13221c" id="ao">Sign out</button></div>`+
-  (sh.map(l=>`<div class="li"><div><b>${esc(l.name)}</b> <span class="st ${l.status}">${l.status==="live"?"live":l.status==="pending"?"awaiting approval":"hidden"}</span><div class="mut">${esc(l.type)} · ${esc(l.area)} · ${money(l)} · ${l.rooms>0?l.rooms+" available":"full"}</div></div>${l.status!=="live"?`<button class="btn sm" data-o="live" data-i="${l.id}">Approve</button>`:`<button class="btn alt sm" style="color:#13221c" data-o="hidden" data-i="${l.id}">Hide</button>`}<button class="btn alt sm" style="color:#13221c" data-o="full" data-i="${l.id}">${l.rooms>0?"Mark full":"Mark available"}</button><button class="btn bad sm" data-o="del" data-i="${l.id}">Delete</button></div>`).join("")||`<p class="mut">Nothing here.</p>`);
-  $$("[data-t]").forEach(b=>b.onclick=()=>adm(b.dataset.t));$("#aa").onclick=()=>{shut();form()};$("#ao").onclick=()=>{isAdmin=false;$("#nadmT").textContent="Admin";shut();toast("Signed out")};
-  $$("[data-o]").forEach(b=>b.onclick=()=>{const l=L.find(x=>x.id===b.dataset.i),o=b.dataset.o;if(!l)return;if(o==="del"){if(!confirm("Delete this listing?"))return;L=L.filter(x=>x!==l);save();draw();adm(tab);if(firestoreReady)cloudDeleteListing(l.id).catch(err=>{console.error(err);toast("Cloud delete requires an authenticated admin account.")});return}else if(o==="full")l.rooms=l.rooms>0?0:1;else l.status=o;save();draw();adm(tab);if(firestoreReady){const fields=o==="full"?{rooms:l.rooms}:{status:l.status};cloudUpdateListing(l.id,fields).catch(err=>{console.error(err);toast("Cloud update requires an authenticated admin account.")})}});open("#m-adm")}
+/* admin + moderators: Firebase Auth. Roles live in Firestore: the admin is set in the Rules, moderators are documents in "roles". */
+async function resolveRole(user){
+  try{const sn=await db.collection("roles").get();return{role:"admin",roles:sn.docs.map(d=>({uid:d.id,...d.data()})).filter(x=>x.role==="moderator")}}catch(e){}
+  try{const d=await db.collection("roles").doc(user.uid).get();if(d.exists&&d.data().role==="moderator")return{role:"moderator"}}catch(e){}
+  return{role:null}
+}
+function setStaff(s,roles){
+  const was=staff;staff=s;modList=roles||[];isAdmin=!!s;
+  $("#nadmT").textContent=s?(s.role==="admin"?"Admin panel":"Moderator panel"):"Admin";
+  if(staffUnsub){staffUnsub();staffUnsub=null}
+  if(s&&db){staffUnsub=db.collection("listings").onSnapshot(sn=>{L=sn.docs.map(d=>({id:d.id,...d.data()}));draw();if($("#m-adm").classList.contains("show")&&$("#ac").querySelector("[data-t]"))adm(curTab)},err=>{console.error(err);toast("Could not load all listings for review.")})}
+  else if(was){L=lastLive.slice();draw()}
+}
+async function applyUser(user){
+  if(!user||!db){setStaff(null);return null}
+  const r=await resolveRole(user);
+  if(!r.role){setStaff(null);return null}
+  setStaff({role:r.role,email:user.email,uid:user.uid},r.roles);return r.role
+}
+if(auth)auth.onAuthStateChanged(u=>{applyUser(u).then(r=>{if(u&&!r)auth.signOut()}).catch(e=>console.error(e))});
+const admOpen=()=>{if(isAdmin)return adm();
+  if(!auth){$("#ac").innerHTML=`<h2>Admin sign-in</h2><p class="mut">Sign-in is unavailable right now. Check your connection and reload.</p>`;return open("#m-adm")}
+  $("#ac").innerHTML=`<h2>Admin sign-in</h2><label>Email</label><input id="ae" type="email" autocomplete="username"><label>Password</label><input id="ap" type="password" autocomplete="current-password"><p><button class="btn" id="al">Sign in</button></p>`;
+  const go=async()=>{const e=$("#ae").value.trim(),p=$("#ap").value;if(!e||!p)return toast("Enter your email and password");$("#al").disabled=true;
+    try{const cred=await auth.signInWithEmailAndPassword(e,p);const r=await applyUser(cred.user);if(r){adm()}else{toast("This account doesn’t have admin or moderator access.");await auth.signOut()}}
+    catch(err){console.error(err);toast(/too-many/.test(err.code||"")?"Too many attempts. Try again later.":"Wrong email or password")}
+    $("#al")&&($("#al").disabled=false)};
+  $("#al").onclick=go;$("#ap").onkeydown=e=>{if(e.key==="Enter")go()};open("#m-adm")};
+let curTab="all";
+function adm(tab="all"){curTab=tab;if(!staff)return admOpen();
+  const isA=staff.role==="admin",c=n=>L.filter(l=>l.status===n).length,sh=tab==="all"?L:L.filter(l=>l.status===tab);
+  const tabs=[["all","All"],["pending","Awaiting approval"],["live","Live"],["hidden","Hidden"]].concat(isA?[["mods","Moderators"]]:[]);
+  const list=sh.map(l=>`<div class="li"><div><b>${esc(l.name)}</b> <span class="st ${l.status}">${l.status==="live"?"live":l.status==="pending"?"awaiting approval":"hidden"}</span><div class="mut">${esc(l.type)} · ${esc(l.area)} · ${money(l)} · ${l.rooms>0?l.rooms+" available":"full"}</div></div>${l.status!=="live"?`<button class="btn sm" data-o="live" data-i="${l.id}">Approve</button>`:`<button class="btn alt sm" style="color:#13221c" data-o="hidden" data-i="${l.id}">Hide</button>`}<button class="btn alt sm" style="color:#13221c" data-o="full" data-i="${l.id}">${l.rooms>0?"Mark full":"Mark available"}</button>${isA?`<button class="btn bad sm" data-o="del" data-i="${l.id}">Delete</button>`:""}</div>`).join("")||`<p class="mut">Nothing here.</p>`;
+  const mods=`<div class="li"><div><b>Add a moderator</b><div class="mut">Moderators can approve, hide and mark places full. They can’t delete listings or manage people.</div></div></div><label>Email</label><input id="me" type="email" autocomplete="off"><label>Temporary password (8+ characters)</label><input id="mp" type="text" autocomplete="off"><p><button class="btn" id="ma">Create moderator</button></p>`+(modList.map(m=>`<div class="li"><div><b>${esc(m.email||m.uid)}</b><div class="mut">moderator</div></div><button class="btn bad sm" data-rm="${m.uid}">Remove</button></div>`).join("")||`<p class="mut">No moderators yet.</p>`);
+  $("#ac").innerHTML=`<h2>${isA?"Admin":"Moderator"} panel</h2><p class="mut">Signed in as ${esc(staff.email||"")}</p><div class="stats"><div><b>${L.length}</b>Total</div><div><b>${c("live")}</b>Live</div><div><b>${c("pending")}</b>Awaiting approval</div><div><b>${c("hidden")}</b>Hidden</div></div>
+<div class="tabs">${tabs.map(t=>`<button class="btn ${tab===t[0]?"on":""}" data-t="${t[0]}">${t[1]}</button>`).join("")}<button class="btn sea" id="aa">+ Add a place</button><button class="btn alt" style="color:#13221c" id="ao">Sign out</button></div>`+(tab==="mods"&&isA?mods:list);
+  $$("[data-t]").forEach(b=>b.onclick=()=>adm(b.dataset.t));$("#aa").onclick=()=>{shut();form()};
+  $("#ao").onclick=async()=>{try{await auth.signOut()}catch(e){}setStaff(null);shut();toast("Signed out")};
+  $$("[data-o]").forEach(b=>b.onclick=()=>{const l=L.find(x=>x.id===b.dataset.i),o=b.dataset.o;if(!l)return;
+    if(o==="del"){if(!isA)return;if(!confirm("Delete this listing?"))return;cloudDeleteListing(l.id).then(()=>toast("Deleted")).catch(err=>{console.error(err);toast("Delete was refused by the server.")});return}
+    const fields=o==="full"?{rooms:l.rooms>0?0:1}:{status:o};
+    cloudUpdateListing(l.id,fields).catch(err=>{console.error(err);toast("Update was refused by the server.")})});
+  if(tab==="mods"&&isA){
+    $("#ma").onclick=async()=>{const em=$("#me").value.trim(),pw=$("#mp").value;if(!em||pw.length<8)return toast("Enter an email and a password of 8+ characters");$("#ma").disabled=true;
+      try{const app2=firebase.apps.find(a=>a.name==="mod")||firebase.initializeApp(firebaseConfig,"mod");const a2=app2.auth();const cred=await a2.createUserWithEmailAndPassword(em,pw);await a2.signOut();
+        await db.collection("roles").doc(cred.user.uid).set({role:"moderator",email:em,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+        modList.push({uid:cred.user.uid,role:"moderator",email:em});toast("Moderator created. Share the email and password with them.");adm("mods")}
+      catch(err){console.error(err);toast(err.code==="auth/email-already-in-use"?"That email already has an account.":"Couldn’t create the moderator.");$("#ma")&&($("#ma").disabled=false)}};
+    $$("[data-rm]").forEach(b=>b.onclick=async()=>{if(!confirm("Remove this moderator’s access?"))return;try{await db.collection("roles").doc(b.dataset.rm).delete();modList=modList.filter(x=>x.uid!==b.dataset.rm);adm("mods")}catch(err){console.error(err);toast("Couldn’t remove that moderator.")}})}
+  open("#m-adm")}
 
 /* the walking guide */
 const man=$("#man"),say=$("#say");let step=-1,px=0,busy=0;
@@ -343,7 +386,7 @@ window.guide=man.onclick=()=>{window.scrollTo({top:0,behavior:"smooth"});man.sty
 addEventListener("resize",()=>{if(step<0)home()});
 man.style.top=(innerHeight-160)+"px";man.style.left="-100px";draw();
 // Realtime database sync. Firestore documents live in the "listings" collection.
-if(firestoreReady&&db){db.collection("listings").where("status","==","live").onSnapshot(snapshot=>{const live=snapshot.docs.map(doc=>({id:doc.id,...doc.data()}));let cached=[];try{cached=JSON.parse(localStorage.getItem("akw_l")||"[]")||[]}catch(e){}const localReview=cached.filter(x=>x.status==="pending"||x.status==="hidden");L=[...live,...localReview.filter(x=>!live.some(y=>y.id===x.id))];save();draw();console.info("Akwaaba Stays: public Firestore listings loaded",live.length);},err=>{console.error("Firestore listener failed:",err);toast("Could not read Firestore. Check database setup and Security Rules.");try{const cached=JSON.parse(localStorage.getItem("akw_l")||"null");if(cached){L=cached;draw()}}catch(e){}})}
+if(firestoreReady&&db){db.collection("listings").where("status","==","live").onSnapshot(snapshot=>{const live=snapshot.docs.map(doc=>({id:doc.id,...doc.data()}));lastLive=live;if(staff)return;let cached=[];try{cached=JSON.parse(localStorage.getItem("akw_l")||"[]")||[]}catch(e){}const localReview=cached.filter(x=>x.status==="pending"||x.status==="hidden");L=[...live,...localReview.filter(x=>!live.some(y=>y.id===x.id))];save();draw();console.info("Akwaaba Stays: public Firestore listings loaded",live.length);},err=>{console.error("Firestore listener failed:",err);toast("Could not read Firestore. Check database setup and Security Rules.");try{const cached=JSON.parse(localStorage.getItem("akw_l")||"null");if(cached){L=cached;draw()}}catch(e){}})}
 let seen=0;try{seen=localStorage.getItem("akw_seen")}catch(e){}
 setTimeout(()=>seen?home():show(0),900);
 
