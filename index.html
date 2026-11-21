@@ -293,8 +293,8 @@ function form(){$("#fc").innerHTML=`<h2>${isAdmin?"Add a place":"List your place
 
 /* admin + moderators: Firebase Auth. Roles live in Firestore: the admin is set in the Rules, moderators are documents in "roles". */
 async function resolveRole(user){
-  try{const sn=await db.collection("roles").get();return{role:"admin",roles:sn.docs.map(d=>({uid:d.id,...d.data()})).filter(x=>x.role==="moderator")}}catch(e){}
-  try{const d=await db.collection("roles").doc(user.uid).get();if(d.exists&&d.data().role==="moderator")return{role:"moderator"}}catch(e){}
+  try{const sn=await db.collection("roles").get();return{role:"admin",roles:sn.docs.map(d=>({uid:d.id,...d.data()})).filter(x=>x.role==="moderator")}}catch(e){console.info("Not admin (roles list refused):",e.code)}
+  try{const d=await db.collection("roles").doc(user.uid).get();if(d.exists&&d.data().role==="moderator")return{role:"moderator"}}catch(e){console.info("Not moderator:",e.code)}
   return{role:null}
 }
 function setStaff(s,roles){
@@ -313,10 +313,13 @@ async function applyUser(user){
 if(auth)auth.onAuthStateChanged(u=>{applyUser(u).then(r=>{if(u&&!r)auth.signOut()}).catch(e=>console.error(e))});
 const admOpen=()=>{if(isAdmin)return adm();
   if(!auth){$("#ac").innerHTML=`<h2>Admin sign-in</h2><p class="mut">Sign-in is unavailable right now. Check your connection and reload.</p>`;return open("#m-adm")}
-  $("#ac").innerHTML=`<h2>Admin sign-in</h2><label>Email</label><input id="ae" type="email" autocomplete="username"><label>Password</label><input id="ap" type="password" autocomplete="current-password"><p><button class="btn" id="al">Sign in</button></p>`;
-  const go=async()=>{const e=$("#ae").value.trim(),p=$("#ap").value;if(!e||!p)return toast("Enter your email and password");$("#al").disabled=true;
-    try{const cred=await auth.signInWithEmailAndPassword(e,p);const r=await applyUser(cred.user);if(r){adm()}else{toast("This account doesn’t have admin or moderator access.");await auth.signOut()}}
-    catch(err){console.error(err);toast(/too-many/.test(err.code||"")?"Too many attempts. Try again later.":"Wrong email or password")}
+  $("#ac").innerHTML=`<h2>Admin sign-in</h2><label>Email</label><input id="ae" type="email" autocomplete="username"><label>Password</label><input id="ap" type="password" autocomplete="current-password"><p id="aerr" class="mut" style="display:none;color:#b3261e"></p><p><button class="btn" id="al">Sign in</button></p>`;
+  const err$=t=>{const el=$("#aerr");if(el){el.innerHTML=t;el.style.display="block"}};
+  const go=async()=>{const e=$("#ae").value.trim(),p=$("#ap").value;if(!e||!p)return err$("Enter your email and password.");$("#al").disabled=true;err$("Signing in…");
+    try{const cred=await auth.signInWithEmailAndPassword(e,p),uid=cred.user.uid;const r=await applyUser(cred.user);
+      if(r){adm()}else{err$("Signed in, but this account isn’t set up as admin or moderator yet.<br>Its UID is <b style=\"user-select:all\">"+esc(uid)+"</b>. For the admin, that exact UID must be inside <code>isAdmin()</code> in your Firestore Rules, and the Rules must be published.");try{await auth.signOut()}catch(x){}}}
+    catch(err){console.error("Sign-in failed:",err.code,err);const M={"auth/operation-not-allowed":"Email/Password sign-in isn’t turned on in Firebase yet (Authentication, Sign-in method).","auth/invalid-credential":"Wrong email or password.","auth/wrong-password":"Wrong email or password.","auth/user-not-found":"No user with that email in this Firebase project.","auth/invalid-email":"That email doesn’t look right.","auth/user-disabled":"This account is disabled in Firebase.","auth/network-request-failed":"Can’t reach Firebase. Check your internet connection.","auth/too-many-requests":"Too many attempts. Try again later.","auth/operation-not-supported-in-this-environment":"Sign-in doesn’t work when the page is opened as a file on your computer. Open it from its web address.","auth/unauthorized-domain":"This website address isn’t on Firebase’s authorized domains list.","auth/invalid-api-key":"The Firebase API key in the page is not valid.","auth/api-key-not-valid.-please-pass-a-valid-api-key.":"The Firebase API key in the page is not valid."};
+      err$(esc(M[err.code]||("Sign-in failed ("+(err.code||"unknown error")+")")))}
     $("#al")&&($("#al").disabled=false)};
   $("#al").onclick=go;$("#ap").onkeydown=e=>{if(e.key==="Enter")go()};open("#m-adm")};
 let curTab="all";
