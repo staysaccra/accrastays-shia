@@ -134,6 +134,7 @@ body.orbit-open{overflow:hidden}
 @media(prefers-reduced-motion:reduce){#man.d3{animation:none}}
 #man::after{content:"";position:absolute;left:14%;right:14%;bottom:-2px;height:12px;border-radius:50%;background:radial-gradient(ellipse,rgba(0,0,0,.35),transparent 70%);z-index:-1}
 #man.d3 span{display:none}#man i{top:-16px;left:0;font-size:12px}
+.lock{background:linear-gradient(135deg,rgba(244,184,26,.2),rgba(255,255,255,.55));border:2px dashed var(--gold);border-radius:16px;padding:12px 14px;margin:10px 0}.lock p{margin:0 0 8px}
 </style></head><body>
 <div class="kente"></div>
 <header><div class="logo">Akwaaba<b>Stays</b></div>
@@ -205,15 +206,80 @@ const SAMPLE=[
 let mem=null;const save=()=>{if(staff)return;const j=JSON.stringify(L.map(({cover,...r})=>r));try{localStorage.setItem("akw_l",j)}catch(e){mem=j}};
 const cloudCreateListing=async(listing,photos=[])=>{if(!db)throw new Error("Firestore unavailable");
   const fv=firebase.firestore.FieldValue,ref=db.collection("listings").doc(String(listing.id)),b=db.batch();
-  b.set(ref,{...listing,createdAt:fv.serverTimestamp(),updatedAt:fv.serverTimestamp()});
+  const {phone,place,landmarks,lat,lng,...pub}=listing,priv={phone:phone||"",place:place||"",landmarks:landmarks||""};if(Number.isFinite(lat)&&Number.isFinite(lng)){priv.lat=lat;priv.lng=lng}
+   b.set(ref,{...pub,createdAt:fv.serverTimestamp(),updatedAt:fv.serverTimestamp()});b.set(ref.collection("private").doc("contact"),priv);
   photos.forEach((d,i)=>b.set(ref.collection("photos").doc(String(i)),{data:d,order:i}));
   await b.commit();};
 const cloudUpdateListing=async(id,fields)=>{if(!db)throw new Error("Firestore unavailable");await db.collection("listings").doc(String(id)).set({...fields,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});};
 const cloudDeleteListing=async id=>{if(!db)throw new Error("Firestore unavailable");
-  const ref=db.collection("listings").doc(String(id)),ps=await ref.collection("photos").get(),b=db.batch();
-  ps.docs.forEach(d=>b.delete(d.ref));b.delete(ref);await b.commit();};
+  const ref=db.collection("listings").doc(String(id)),ps=await ref.collection("photos").get(),pr=await ref.collection("private").get(),b=db.batch();
+  ps.docs.forEach(d=>b.delete(d.ref));pr.docs.forEach(d=>b.delete(d.ref));b.delete(ref);await b.commit();};
 let L;try{L=JSON.parse(localStorage.getItem("akw_l")||mem)}catch(e){}L=L||SAMPLE;
 let area="",isAdmin=false;
+/* ---- Paid unlock: landlord contact + exact location ----
+   Private details live in listings/{id}/private/contact. Firestore Rules decide who may read them:
+   staff, the owner, or a tenant whose unlocks/{uid_listingId} doc a permitted admin/moderator marked "paid". */
+let FEE={amount:50,momo:"",momoName:"",note:""},myUnlocks={},unlockUnsub=null,payUnsub=null,payList=[];const privCache={},PRIV=["phone","place","landmarks","lat","lng"];
+const gh=n=>"GH₵"+Number(n).toLocaleString(),unlockId=(u,l)=>u+"_"+l;
+const canSee=l=>!!(staff||(acct&&l.ownerUid===acct.uid)||(acct&&myUnlocks[l.id]&&myUnlocks[l.id].status==="paid"));
+async function getPrivate(l){
+  if(privCache[l.id])return privCache[l.id];
+  if(db){try{const d=await db.collection("listings").doc(String(l.id)).collection("private").doc("contact").get();if(d.exists)return privCache[l.id]=d.data()}catch(e){console.info("Private details not readable:",e.code);return null}}
+  return(l.phone||l.place||l.landmarks)?{phone:l.phone,place:l.place,landmarks:l.landmarks,lat:l.lat,lng:l.lng}:null}
+if(db)db.collection("settings").doc("unlock").onSnapshot(d=>{if(d.exists)FEE={...FEE,...d.data()};if($("#vloc"))renderGate(window.curView)},()=>{});
+function watchUnlocks(a){
+  if(unlockUnsub){unlockUnsub();unlockUnsub=null}if(payUnsub){payUnsub();payUnsub=null}
+  myUnlocks={};payList=[];Object.keys(privCache).forEach(k=>delete privCache[k]);if(!a||!db)return;
+  if(a.role==="admin"||(a.role==="moderator"&&a.canConfirm))payUnsub=db.collection("unlocks").onSnapshot(sn=>{payList=sn.docs.map(d=>({id:d.id,...d.data()}));refreshPanel()},e=>console.error("Payments:",e));
+  else if(a.role==="tenant")unlockUnsub=db.collection("unlocks").where("tenantUid","==",a.uid).onSnapshot(sn=>{myUnlocks={};sn.docs.forEach(d=>{const x=d.data();myUnlocks[x.listingId]=x});if($("#vloc")&&$("#m-view").classList.contains("show"))renderGate(window.curView)},e=>console.error("Unlocks:",e))}
+async function renderGate(l){
+  const box=$("#vloc"),w=$("#vwa");if(!box||!l)return;
+  if(canSee(l)){
+    box.innerHTML='<p class="mut">Loading contact and location…</p>';const d=await getPrivate(l);if(!$("#vloc"))return;
+    if(!d){box.innerHTML='<p class="mut">Couldn’t load the details. Check your connection and try again.</p>';return}
+    box.innerHTML=locHTML({...l,...d})+'<p class="mut">🔓 Unlocked'+(hasPin(d)?' · <button type="button" class="btn alt sm" style="color:#13221c" id="vx">Show exact spot on map</button>':'')+'</p>';
+    w.innerHTML=`<a class="btn" style="text-decoration:none;display:inline-block" data-wa="${l.id}" href="https://wa.me/${wa(d.phone)}" target="_blank" rel="noopener">Chat on WhatsApp</a> `;
+    $("#vx")&&($("#vx").onclick=()=>{shut();pick(l.area);$("#mapw").scrollIntoView({behavior:"smooth",block:"center"});setTimeout(()=>{if(accraMap){accraMap.setView([d.lat,d.lng],17);LF.marker([d.lat,d.lng]).addTo(accraMap).bindPopup(esc(l.name)).openPopup()}},150)});return}
+  w.innerHTML="";const u=myUnlocks[l.id],fee=gh(FEE.amount);
+  let h=`<div class="lock"><p>📍 <b>${esc(l.area)}</b>, Accra<br><span class="mut">The street, landmarks, map pin and the landlord’s WhatsApp unlock after a one-time fee.</span></p>`;
+  if(!acct)h+=`<button class="btn" id="vu">Sign in to unlock · ${fee}</button>`;
+  else if(acct.role!=="tenant")h+=`<p class="mut">Unlocking is for tenant accounts.</p>`;
+  else if(u&&u.status==="requested")h+=`<p>⏳ <b>Waiting for confirmation.</b> We have your payment details (ref <b>${esc(u.ref)}</b>). An admin or moderator will confirm it soon, and this page unlocks by itself.</p>`;
+  else{if(u&&u.status==="rejected")h+=`<p style="color:#b3261e">Your last payment couldn’t be confirmed. You can try again.</p>`;h+=`<button class="btn" id="vu">Unlock for ${fee}</button>`}
+  box.innerHTML=h+"</div>";
+  $("#vu")&&($("#vu").onclick=()=>!acct?(shut(),acctOpen("up","Create a free tenant account to unlock a place’s contact and exact location.")):payForm(l))}
+function payForm(l){
+  const box=$("#vloc");if(!box)return;
+  if(!FEE.momo){box.innerHTML='<div class="lock"><p>Payment details haven’t been set up yet. Please try again later.</p></div>';return}
+  const ref="AKW-"+Math.random().toString(36).slice(2,7).toUpperCase();
+  box.innerHTML=`<div class="lock"><b>Unlock “${esc(l.name)}” · ${gh(FEE.amount)}</b><ol class="mut" style="padding-left:18px;margin:8px 0"><li>Send <b>${gh(FEE.amount)}</b> by Mobile Money to <b>${esc(FEE.momo)}</b>${FEE.momoName?" ("+esc(FEE.momoName)+")":""}.</li><li>Use <b>${ref}</b> as the payment reference.</li><li>Fill in the form below and tap the button.</li></ol>${FEE.note?`<p class="mut">${esc(FEE.note)}</p>`:""}<label>Your Mobile Money number</label><input id="upn" type="tel" value="${esc(acct.phone||"")}"><label>Transaction ID <span class="mut">(from the payment SMS)</span></label><input id="utx" maxlength="30"><p style="margin-top:10px"><button class="btn" id="ups">I’ve paid. Request unlock</button> <button class="btn alt sm" style="color:#13221c" id="upc">Cancel</button></p></div>`;
+  $("#upc").onclick=()=>renderGate(l);
+  $("#ups").onclick=async()=>{const ph=$("#upn").value.trim(),tx=$("#utx").value.trim();if(ph.replace(/\D/g,"").length<10||tx.length<4)return toast("Add your 10-digit Mobile Money number and the transaction ID.");
+    $("#ups").disabled=true;
+    try{await db.collection("unlocks").doc(unlockId(acct.uid,l.id)).set({tenantUid:acct.uid,tenantName:acct.name||"",tenantEmail:acct.email||"",tenantPhone:ph,listingId:String(l.id),listingName:l.name,amount:FEE.amount,ref,txId:tx,status:"requested",createdAt:firebase.firestore.FieldValue.serverTimestamp()});toast("Sent. This place unlocks once your payment is confirmed.")}
+    catch(e){console.error(e);toast("Couldn’t send your request. Please try again.");const b=$("#ups");if(b)b.disabled=false}}}
+function payHTML(isA){
+  const fmt=x=>{try{return x.createdAt&&x.createdAt.toDate?x.createdAt.toDate().toLocaleString("en-GB",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):""}catch(e){return""}};
+  const ord={requested:0,paid:1,rejected:2},rows=payList.slice().sort((a,b)=>((b.createdAt&&b.createdAt.seconds)||0)-((a.createdAt&&a.createdAt.seconds)||0)).sort((a,b)=>ord[a.status]-ord[b.status]);
+  const adminBox=isA?`<div class="li"><div><b>Unlock fee and payment details</b><div class="mut">Tenants see these when they unlock a place.</div></div></div><div class="row"><div><label>Fee (GH₵)</label><input id="pf-a" type="number" min="1" value="${esc(FEE.amount)}"></div><div><label>Mobile Money number</label><input id="pf-n" type="tel" value="${esc(FEE.momo)}"></div></div><div class="row"><div><label>Name on the account</label><input id="pf-m" value="${esc(FEE.momoName)}"></div><div><label>Extra note (optional)</label><input id="pf-t" maxlength="160" value="${esc(FEE.note)}"></div></div><p><button class="btn" id="pf-s">Save fee settings</button></p>
+  <div class="li"><div><b>Who can confirm payments</b><div class="mut">Admins always can. Choose which moderators can too.</div></div></div>${modList.map(m=>`<div class="li"><div><b>${esc(m.email||m.uid)}</b> <span class="st ${m.canConfirm?"live":"pending"}">${m.canConfirm?"can confirm":"can’t confirm"}</span></div><button class="btn alt sm" style="color:#13221c" data-cf="${esc(m.uid)}">${m.canConfirm?"Remove":"Allow"}</button></div>`).join("")||'<p class="mut">No moderators yet.</p>'}
+  <div class="li"><div><b>Secure existing listings</b><div class="mut">Moves phone numbers, streets, landmarks and pins of older listings out of public view.</div></div><button class="btn sea sm" id="pf-sec">Secure now</button></div>`:"";
+  return adminBox+`<h3 style="margin:16px 0 4px">Payment requests</h3>`+(rows.map(p=>`<div class="li"><div><b>${esc(p.tenantName||p.tenantEmail)}</b> <span class="st ${p.status==="paid"?"live":p.status==="rejected"?"hidden":"pending"}">${p.status==="requested"?"awaiting confirmation":esc(p.status)}</span><div class="mut">${esc(p.listingName)} · ${gh(p.amount)} · ref ${esc(p.ref)} · txn ${esc(p.txId)}</div><div class="mut">MoMo ${esc(p.tenantPhone)} · ${esc(p.tenantEmail||"")} · ${fmt(p)}${p.confirmedBy?" · by "+esc(p.confirmedBy):""}</div></div>${p.status!=="paid"?`<button class="btn sm" data-pc="paid" data-pid="${esc(p.id)}">Confirm payment</button>`:""}${p.status==="requested"?`<button class="btn bad sm" data-pc="rejected" data-pid="${esc(p.id)}">Reject</button>`:""}${p.status==="paid"?`<button class="btn alt sm" style="color:#13221c" data-pc="rejected" data-pid="${esc(p.id)}">Revoke</button>`:""}</div>`).join("")||'<p class="mut">No payment requests yet.</p>')}
+function bindPay(isA){
+  $$("[data-pc]").forEach(b=>b.onclick=async()=>{const st=b.dataset.pc;
+    if(st==="paid"&&!confirm("Confirm that you received this payment? The tenant will get the landlord’s contact and exact location."))return;if(st==="rejected"&&!confirm("Reject or revoke this payment?"))return;
+    try{await db.collection("unlocks").doc(b.dataset.pid).update({status:st,confirmedBy:staff.email||"",confirmedAt:firebase.firestore.FieldValue.serverTimestamp()});toast(st==="paid"?"Confirmed. The tenant now has access.":"Updated")}catch(e){console.error(e);toast("The server refused that. Are you allowed to confirm payments?")}});
+  if(!isA)return;
+  $("#pf-s").onclick=async()=>{const a=+$("#pf-a").value;if(!(a>0))return toast("Enter a fee above zero.");try{await db.collection("settings").doc("unlock").set({amount:a,momo:$("#pf-n").value.trim(),momoName:$("#pf-m").value.trim(),note:$("#pf-t").value.trim()});toast("Saved")}catch(e){console.error(e);toast("Couldn’t save the settings.")}};
+  $$("[data-cf]").forEach(b=>b.onclick=async()=>{const m=modList.find(x=>x.uid===b.dataset.cf);try{await db.collection("roles").doc(b.dataset.cf).set({canConfirm:!(m&&m.canConfirm)},{merge:true})}catch(e){console.error(e);toast("Couldn’t change that.")}});
+  $("#pf-sec").onclick=secureAll}
+async function secureAll(){
+  const todo=L.filter(l=>l.phone||l.place||l.landmarks||Number.isFinite(l.lat));
+  if(!todo.length)return toast("Nothing to secure. Contact details are already private.");
+  if(!confirm("Move contact details of "+todo.length+" listing(s) out of public view?"))return;
+  const fv=firebase.firestore.FieldValue;
+  try{for(let i=0;i<todo.length;i+=100){const b=db.batch();todo.slice(i,i+100).forEach(l=>{const ref=db.collection("listings").doc(String(l.id)),p={},del={};PRIV.forEach(k=>{if(l[k]!==undefined&&l[k]!==null&&l[k]!=="")p[k]=l[k];del[k]=fv.delete()});b.set(ref.collection("private").doc("contact"),p,{merge:true});b.update(ref,del)});await b.commit()}toast("Done. "+todo.length+" listing(s) secured.")}
+  catch(e){console.error(e);toast("Couldn’t finish. Deploy the new Firestore Rules first.")}}
 const mo=l=>({year:l.price/12,semester:l.price/6,month:l.price,night:l.price*30}[l.per]||l.price);
 const money=l=>"GH₵"+Number(l.price).toLocaleString()+" / "+l.per;
 const wa=p=>String(p).replace(/\D/g,"").replace(/^0/,"233");
@@ -289,9 +355,9 @@ function draw(){const q=$("#q").value.toLowerCase().trim(),t=$("#ty").value,b=+$
     });
     if(area){const c=AREA_GEO[area];if(c)accraMap.setView(c,13)}else if(r.length===0){accraMap.setView([5.6037,-0.1870],11)}
   }}
-function view(id){const l=L.find(x=>x.id===id);if(!l)return;const[e,c]=TY[l.type]||["🏠","#ddd"];
-  $("#v").innerHTML=`<button class="x" data-x>×</button><div class="pic" id="vg" style="background:${sImg(l.cover)?`url(${sImg(l.cover)}) center/cover`:c};border-radius:16px;height:${sImg(l.cover)?"230px":"150px"};font-size:64px">${sImg(l.cover)?"":e}</div><h2>${esc(l.name)}</h2><p class="mut">${esc(l.type)} · ${esc(l.area)}, Accra · ${l.rooms>0?l.rooms+" available":"Currently full"}</p><p class="price">${money(l)}</p>${locHTML(l)}<div class="am">${(l.am||[]).map(a=>`<span>${AM[a]||""}</span>`).join("")}</div><p>${esc(l.desc)}</p><p><a class="btn" style="text-decoration:none;display:inline-block" data-wa="${l.id}" href="https://wa.me/${wa(l.phone)}" target="_blank" rel="noopener">Chat on WhatsApp</a> <button class="btn alt" style="color:#13221c" id="vm">Show on map</button>${(!staff&&(!acct||acct.role==="tenant"))?` <button class="btn alt" style="color:#13221c" id="vs">${saved.has(String(l.id))?"♥ Saved":"♡ Save"}</button>`:""}</p><p class="mut">Visit the place and meet the landlord before you pay anything.</p>`;
-  $("#v .x").onclick=shut;$("#vm").onclick=()=>{shut();pick(l.area);if(hasPin(l)&&typeof accraMap!=="undefined"&&accraMap)setTimeout(()=>accraMap.setView([l.lat,l.lng],16),80);$("#mapw").scrollIntoView({behavior:"smooth",block:"center"})};$("#vs")&&($("#vs").onclick=()=>toggleSave(l.id));open("#m-view");loadGallery(l)}
+function view(id){const l=L.find(x=>x.id===id);if(!l)return;window.curView=l;const[e,c]=TY[l.type]||["🏠","#ddd"];
+  $("#v").innerHTML=`<button class="x" data-x>×</button><div class="pic" id="vg" style="background:${sImg(l.cover)?`url(${sImg(l.cover)}) center/cover`:c};border-radius:16px;height:${sImg(l.cover)?"230px":"150px"};font-size:64px">${sImg(l.cover)?"":e}</div><h2>${esc(l.name)}</h2><p class="mut">${esc(l.type)} · ${esc(l.area)}, Accra · ${l.rooms>0?l.rooms+" available":"Currently full"}</p><p class="price">${money(l)}</p><div id="vloc"></div><div class="am">${(l.am||[]).map(a=>`<span>${AM[a]||""}</span>`).join("")}</div><p>${esc(l.desc)}</p><p><span id="vwa"></span><button class="btn alt" style="color:#13221c" id="vm">Show on map</button>${(!staff&&(!acct||acct.role==="tenant"))?` <button class="btn alt" style="color:#13221c" id="vs">${saved.has(String(l.id))?"♥ Saved":"♡ Save"}</button>`:""}</p><p class="mut">The unlock fee covers verifying places. Never pay rent or a deposit before you have visited and met the landlord.</p>`;
+  $("#v .x").onclick=shut;$("#vm").onclick=()=>{shut();pick(l.area);if(hasPin(l)&&typeof accraMap!=="undefined"&&accraMap)setTimeout(()=>accraMap.setView([l.lat,l.lng],16),80);$("#mapw").scrollIntoView({behavior:"smooth",block:"center"})};$("#vs")&&($("#vs").onclick=()=>toggleSave(l.id));open("#m-view");loadGallery(l);renderGate(l)}
 
 /* add a place (landlord => pending, admin => live) */
 function form(){formPhotos=[];formCover="";$("#fc").innerHTML=`<h2>${isAdmin?"Add a place":"List your place"}</h2><p class="mut">Every new listing is saved as pending until an authorised admin approves it.</p>
@@ -389,12 +455,12 @@ function recompute(){
 }
 function refreshPanel(){
   if(!$("#m-adm").classList.contains("show"))return;const ac=$("#ac");
-  if(staff&&ac.querySelector("[data-t]")&&curTab!=="mods")adm(curTab);
+  if(staff&&ac.querySelector("[data-t]")&&curTab!=="mods"&&!(curTab==="pay"&&/INPUT|SELECT/.test((document.activeElement||{}).tagName||"")))adm(curTab);
   else if(acct&&acct.role==="landlord"&&ac.querySelector("#ll-add"))ll()
 }
 async function resolveRole(user){
   try{const sn=await db.collection("roles").get();return{role:"admin",roles:sn.docs.map(d=>({uid:d.id,...d.data()})).filter(x=>x.role==="moderator")}}catch(e){console.info("Not admin (roles list refused):",e.code)}
-  try{const d=await db.collection("roles").doc(user.uid).get();if(d.exists&&d.data().role==="moderator")return{role:"moderator"}}catch(e){console.info("Not moderator:",e.code)}
+  try{const d=await db.collection("roles").doc(user.uid).get();if(d.exists&&d.data().role==="moderator")return{role:"moderator",canConfirm:!!d.data().canConfirm}}catch(e){console.info("Not moderator:",e.code)}
   return{role:null}
 }
 function setAcct(a,roles){
@@ -408,12 +474,12 @@ function setAcct(a,roles){
     rolesUnsub=db.collection("roles").onSnapshot(sn=>{modList=sn.docs.map(d=>({uid:d.id,...d.data()})).filter(x=>x.role==="moderator");refreshPanel()},err=>console.error("Roles list:",err))}
   if(staff&&db){staffUnsub=db.collection("listings").onSnapshot(sn=>{staffList=sn.docs.map(d=>({id:d.id,...d.data()}));recompute()},err=>{console.error(err);toast("Could not load all listings for review.")})}
   else if(a&&a.role==="landlord"&&db){ownUnsub=db.collection("listings").where("ownerUid","==",a.uid).onSnapshot(sn=>{ownList=sn.docs.map(d=>({id:d.id,...d.data()}));recompute()},err=>{console.error(err);toast("Could not load your listings.")})}
-  recompute()
+  watchUnlocks(a);recompute()
 }
 async function applyUser(user){
   if(!user||!db){setAcct(null);return null}
   const r=await resolveRole(user);
-  if(r.role){setAcct({uid:user.uid,email:user.email,name:user.displayName||"",role:r.role},r.roles);return r.role}
+  if(r.role){setAcct({uid:user.uid,email:user.email,name:user.displayName||"",role:r.role,canConfirm:!!r.canConfirm},r.roles);return r.role}
   saved=new Set();let name=user.displayName||"",phone="",role="tenant";
   try{const d=await db.collection("users").doc(user.uid).get();if(d.exists){const u=d.data();name=u.name||name;phone=u.phone||"";saved=new Set((u.saved||[]).map(String));role=u.role==="landlord"?"landlord":"tenant"}}catch(e){console.info("Profile not readable:",e.code)}
   setAcct({uid:user.uid,email:user.email,name,phone,role});return role
@@ -510,7 +576,7 @@ function ll(){
 }
 function adm(tab="all"){curTab=tab;if(!staff)return acctOpen();
   const isA=staff.role==="admin",c=n=>L.filter(l=>l.status===n).length,sh=tab==="all"?L:L.filter(l=>l.status===tab);
-  const tabs=[["all","All"],["pending","Awaiting approval"],["live","Live"],["hidden","Hidden"]].concat(isA?[["people","People ("+peopleList.length+")"],["mods","Moderators"]]:[]);
+  const tabs=[["all","All"],["pending","Awaiting approval"],["live","Live"],["hidden","Hidden"]].concat(isA||staff.canConfirm?[["pay","Payments ("+payList.filter(p=>p.status==="requested").length+")"]]:[]).concat(isA?[["people","People ("+peopleList.length+")"],["mods","Moderators"]]:[]);
   const list=sh.map(l=>`<div class="li"><div><b>${esc(l.name)}</b> <span class="st ${l.status}">${l.status==="live"?"live":l.status==="pending"?"awaiting approval":"hidden"}</span><div class="mut">${esc(l.type)} · ${esc(l.area)} · ${money(l)} · ${l.rooms>0?l.rooms+" available":"full"}${l.ownerEmail?" · by "+esc(l.ownerEmail):""}${l.contacts?" · "+l.contacts+" WhatsApp taps":""}</div></div>${l.photoCount?`<button class="btn alt sm" style="color:#13221c" data-ph="${l.id}">Photos (${l.photoCount})</button>`:""}${l.status!=="live"?`<button class="btn sm" data-o="live" data-i="${l.id}">Approve</button>`:`<button class="btn alt sm" style="color:#13221c" data-o="hidden" data-i="${l.id}">Hide</button>`}<button class="btn alt sm" style="color:#13221c" data-o="full" data-i="${l.id}">${l.rooms>0?"Mark full":"Mark available"}</button>${isA?`<button class="btn bad sm" data-o="del" data-i="${l.id}">Delete</button>`:""}</div>`).join("")||`<p class="mut">Nothing here.</p>`;
   const modIds=new Set(modList.map(m=>m.uid));
   const pdt=p=>{try{return p.createdAt&&p.createdAt.toDate?p.createdAt.toDate().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}):""}catch(e){return ""}};
@@ -519,7 +585,7 @@ function adm(tab="all"){curTab=tab;if(!staff)return acctOpen();
     return `<div class="li"><div><b>${esc(x.name||x.email||x.uid)}</b> <span class="st ${isM?"live":"pending"}">${isM?"moderator":x.role==="landlord"?"landlord/agent":"tenant"}</span><div class="mut">${esc(x.email||"")}${x.phone?" · "+esc(x.phone):""}${pdt(x)?" · joined "+pdt(x):""}${x.role==="landlord"?" · "+mine+" listing"+(mine===1?"":"s"):""}</div></div>${isM?`<button class="btn alt sm" style="color:#13221c" data-un="${esc(x.uid)}">Remove moderator</button>`:`<button class="btn sm" data-mk="${esc(x.uid)}">Make moderator</button>`}</div>`}).join("")||`<p class="mut">No one has signed up yet.</p>`);
   const mods=`<div class="li"><div><b>Add a moderator</b><div class="mut">Moderators can approve, hide and mark places full. They can’t delete listings or manage people. To promote someone who has already signed up, use the People tab.</div></div></div><label>Email</label><input id="me" type="email" autocomplete="off"><label>Temporary password (8+ characters)</label><input id="mp" type="text" autocomplete="off"><p><button class="btn" id="ma">Create moderator</button></p>`+(modList.map(m=>`<div class="li"><div><b>${esc(m.email||m.uid)}</b><div class="mut">moderator</div></div><button class="btn bad sm" data-rm="${m.uid}">Remove</button></div>`).join("")||`<p class="mut">No moderators yet.</p>`);
   $("#ac").innerHTML=`<h2>${isA?"Admin":"Moderator"} panel</h2><p class="mut">Signed in as ${esc(staff.email||"")}</p><div class="stats"><div><b>${L.length}</b>Total</div><div><b>${c("live")}</b>Live</div><div><b>${c("pending")}</b>Awaiting approval</div><div><b>${c("hidden")}</b>Hidden</div></div>
-<div class="tabs">${tabs.map(t=>`<button class="btn ${tab===t[0]?"on":""}" data-t="${t[0]}">${t[1]}</button>`).join("")}<button class="btn sea" id="aa">+ Add a place</button><button class="btn alt" style="color:#13221c" id="ao">Sign out</button></div>`+(tab==="mods"&&isA?mods:tab==="people"&&isA?peopleHTML:list);
+<div class="tabs">${tabs.map(t=>`<button class="btn ${tab===t[0]?"on":""}" data-t="${t[0]}">${t[1]}</button>`).join("")}<button class="btn sea" id="aa">+ Add a place</button><button class="btn alt" style="color:#13221c" id="ao">Sign out</button></div>`+(tab==="pay"&&(isA||staff.canConfirm)?payHTML(isA):tab==="mods"&&isA?mods:tab==="people"&&isA?peopleHTML:list);
   $$("[data-t]").forEach(b=>b.onclick=()=>adm(b.dataset.t));$("#aa").onclick=()=>{shut();form()};
   $("#ao").onclick=doSignOut;$$("[data-ph]").forEach(b=>b.onclick=()=>reviewPhotos(b.dataset.ph));
   $$("[data-o]").forEach(b=>b.onclick=()=>{const l=L.find(x=>x.id===b.dataset.i),o=b.dataset.o;if(!l)return;
@@ -537,6 +603,7 @@ function adm(tab="all"){curTab=tab;if(!staff)return acctOpen();
         modList.push({uid:cred.user.uid,role:"moderator",email:em});toast("Moderator created. Share the email and password with them.");adm("mods")}
       catch(err){console.error(err);toast(err.code==="auth/email-already-in-use"?"That email already has an account.":"Couldn’t create the moderator.");$("#ma")&&($("#ma").disabled=false)}};
     $$("[data-rm]").forEach(b=>b.onclick=async()=>{if(!confirm("Remove this moderator’s access?"))return;try{await db.collection("roles").doc(b.dataset.rm).delete();modList=modList.filter(x=>x.uid!==b.dataset.rm);adm("mods")}catch(err){console.error(err);toast("Couldn’t remove that moderator.")}})}
+  if(tab==="pay"&&(isA||staff.canConfirm))bindPay(isA);
   open("#m-adm")}
 /* count WhatsApp taps so landlords can see interest in their place */
 document.addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("[data-wa]");if(!a||!db)return;db.collection("listings").doc(String(a.dataset.wa)).update({contacts:firebase.firestore.FieldValue.increment(1)}).catch(()=>{})},true);
@@ -548,7 +615,7 @@ const STEPS=[
 {t:["#track"],m:"Step 1: Choose an area. These buttons slide along on their own. Tap one to pause them and pick, or use the arrows."},
 {t:["#bar"],m:"Step 2: Pick the type of place and your monthly budget. Prices for years or nights are converted for you."},
 {t:['[data-a="Circle"]','[data-a="Osu"]','[data-a="East Legon"]'],m:"Step 3: This is the live map of Accra. Switch between street, satellite and terrain views. The markers show approximate neighbourhood locations for each stay; tap one to see its details."},
-{t:["#grid"],m:"Step 4: Tap a card to see what’s included, then chat with the landlord on WhatsApp. Always visit before you pay."},
+{t:["#grid"],m:"Step 4: Tap a card to see what’s included, then unlock the landlord’s WhatsApp and the exact location with a small one-time fee. Always visit before you pay rent."},
 {t:["#orbitToggle"],m:"Tap Explore any time to jump around, list your place, or sign in to your account. That’s everything. Tap me whenever you need help!"}];
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 /* Natural spoken narration. Browsers require a user gesture before audio can start. */
