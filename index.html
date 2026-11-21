@@ -147,7 +147,7 @@ body.orbit-open{overflow:hidden}
 <button class="orbit-card oc3" data-dest="area" type="button"><span class="orbit-emoji">📍</span><strong>Pick an area</strong><small>Osu, Legon, Madina and more.</small></button>
 <button class="orbit-card oc4" data-dest="guide" type="button"><span class="orbit-emoji">🧍‍♂️</span><strong>Show me how</strong><small>Kofi walks you through it.</small></button>
 <button class="orbit-card oc5" data-dest="list" type="button"><span class="orbit-emoji">➕</span><strong>List your place</strong><small>Reach people looking for a room.</small></button>
-<button class="orbit-card oc6" data-dest="admin" type="button"><span class="orbit-emoji">🛡️</span><strong id="nadmT">Admin</strong><small>Approve and manage listings.</small></button>
+<button class="orbit-card oc6" data-dest="account" type="button"><span class="orbit-emoji">👤</span><strong id="nadmT">Sign in</strong><small>Tenants, landlords and agents.</small></button>
 </div><div class="orbit-foot">Akwaaba means welcome 🇬🇭</div></aside>
 
 <section class="hero"><i class="orb o1"></i><i class="orb o2"></i><i class="orb o3"></i><div class="hero-in">
@@ -187,7 +187,7 @@ const firebaseConfig={apiKey:"AIzaSyAwuLIepe09S_4Hhju6lvgxp6mmpWAFSdw",authDomai
 let db=null,auth=null,firestoreReady=false;
 try{if(window.firebase?.initializeApp&&window.firebase?.firestore){if(!firebase.apps.length)firebase.initializeApp(firebaseConfig);db=firebase.firestore();auth=firebase.auth?firebase.auth():null;firestoreReady=true;console.info("Akwaaba Stays: Firebase connected");}else console.warn("Firebase SDK did not load; using local storage.");}catch(e){console.error("Firebase initialization failed:",e);}
 /* Admin + moderator access is real Firebase Authentication. The server (Firestore Security Rules) decides who may do what; this page only mirrors it. */
-let staff=null,modList=[],lastLive=[],staffUnsub=null;
+let staff=null,acct=null,modList=[],lastLive=[],liveLoaded=false,staffList=[],ownList=[],staffUnsub=null,ownUnsub=null,pendingSignup=false,saved=new Set(),peopleList=[],peopleUnsub=null,rolesUnsub=null;
 /* area name, x, y on the 800x520 map */
 const AR={"Dansoman":[110,360],"Kaneshie":[225,305],"Circle":[320,245],"Achimota":[190,165],"Osu":[400,372],"Labone":[470,345],"Legon":[520,125],"East Legon":[585,215],"Madina":[665,115],"Spintex":[675,305],"Tema":[740,345]};
 const TY={"Hostel":["🛏️","#bfe3cf"],"Self-contain":["🚪","#fbe1a1"],"Single room":["🏠","#f4c4c9"],"Apartment":["🏢","#c9dcf2"],"Guest house":["🏡","#e3d3f0"]};
@@ -258,7 +258,7 @@ function draw(){const q=$("#q").value.toLowerCase().trim(),t=$("#ty").value,b=+$
   $$("#track button").forEach(x=>x.classList.toggle("on",x.dataset.c===(area||"All Accra")));
   $("#info").textContent=r.length?`${r.length} place${r.length>1?"s":""} ${area?"in "+area:"across Accra"}`:"";
   $("#hlt").textContent=$("#info").textContent||"No places match yet";
-  $("#grid").innerHTML=r.length?r.map(l=>{const[e,c]=TY[l.type]||["🏠","#ddd"];return`<button class="card" data-id="${l.id}"><div class="pic" style="background:${c}"><span class="tag">${esc(l.type)}</span>${e}</div><div class="cb"><h3>${esc(l.name)}</h3><div class="mut">${esc(l.area)}${l.rooms>0?" · "+l.rooms+" available":" · Full"}</div><div class="am">${(l.am||[]).slice(0,3).map(a=>`<span>${AM[a]||""}</span>`).join("")}</div><div class="price">${money(l)}</div></div></button>`}).join(""):`<div class="empty"><b>No places match yet.</b><p class="mut">Try another area, or choose Any type and Any budget.</p><button class="btn" id="rs">Show everything</button></div>`;
+  $("#grid").innerHTML=r.length?r.map(l=>{const[e,c]=TY[l.type]||["🏠","#ddd"];return`<button class="card" data-id="${l.id}"><div class="pic" style="background:${c}"><span class="tag">${esc(l.type)}</span>${saved.has(String(l.id))?'<span style="position:absolute;right:10px;top:8px;color:#e0245e;font-size:20px;line-height:1;text-shadow:none">♥</span>':""}${e}</div><div class="cb"><h3>${esc(l.name)}</h3><div class="mut">${esc(l.area)}${l.rooms>0?" · "+l.rooms+" available":" · Full"}</div><div class="am">${(l.am||[]).slice(0,3).map(a=>`<span>${AM[a]||""}</span>`).join("")}</div><div class="price">${money(l)}</div></div></button>`}).join(""):`<div class="empty"><b>No places match yet.</b><p class="mut">Try another area, or choose Any type and Any budget.</p><button class="btn" id="rs">Show everything</button></div>`;
   $("#rs")&&($("#rs").onclick=()=>{$("#ty").value=$("#bu").value="";pick("")});
   $$(".card").forEach(c=>c.onclick=()=>view(c.dataset.id));
   if(listingLayer&&accraMap){
@@ -277,65 +277,172 @@ function draw(){const q=$("#q").value.toLowerCase().trim(),t=$("#ty").value,b=+$
     if(area){const c=AREA_GEO[area];if(c)accraMap.setView(c,13)}else if(r.length===0){accraMap.setView([5.6037,-0.1870],11)}
   }}
 function view(id){const l=L.find(x=>x.id===id);if(!l)return;const[e,c]=TY[l.type]||["🏠","#ddd"];
-  $("#v").innerHTML=`<button class="x" data-x>×</button><div class="pic" style="background:${c};border-radius:16px;height:150px;font-size:64px">${e}</div><h2>${esc(l.name)}</h2><p class="mut">${esc(l.type)} · ${esc(l.area)}, Accra · ${l.rooms>0?l.rooms+" available":"Currently full"}</p><p class="price">${money(l)}</p><div class="am">${(l.am||[]).map(a=>`<span>${AM[a]||""}</span>`).join("")}</div><p>${esc(l.desc)}</p><p><a class="btn" style="text-decoration:none;display:inline-block" href="https://wa.me/${wa(l.phone)}" target="_blank" rel="noopener">Chat on WhatsApp</a> <button class="btn alt" style="color:#13221c" id="vm">Show on map</button></p><p class="mut">Visit the place and meet the landlord before you pay anything.</p>`;
-  $("#v .x").onclick=shut;$("#vm").onclick=()=>{shut();pick(l.area);$("#mapw").scrollIntoView({behavior:"smooth",block:"center"})};open("#m-view")}
+  $("#v").innerHTML=`<button class="x" data-x>×</button><div class="pic" style="background:${c};border-radius:16px;height:150px;font-size:64px">${e}</div><h2>${esc(l.name)}</h2><p class="mut">${esc(l.type)} · ${esc(l.area)}, Accra · ${l.rooms>0?l.rooms+" available":"Currently full"}</p><p class="price">${money(l)}</p><div class="am">${(l.am||[]).map(a=>`<span>${AM[a]||""}</span>`).join("")}</div><p>${esc(l.desc)}</p><p><a class="btn" style="text-decoration:none;display:inline-block" data-wa="${l.id}" href="https://wa.me/${wa(l.phone)}" target="_blank" rel="noopener">Chat on WhatsApp</a> <button class="btn alt" style="color:#13221c" id="vm">Show on map</button>${(!staff&&(!acct||acct.role==="tenant"))?` <button class="btn alt" style="color:#13221c" id="vs">${saved.has(String(l.id))?"♥ Saved":"♡ Save"}</button>`:""}</p><p class="mut">Visit the place and meet the landlord before you pay anything.</p>`;
+  $("#v .x").onclick=shut;$("#vm").onclick=()=>{shut();pick(l.area);$("#mapw").scrollIntoView({behavior:"smooth",block:"center"})};$("#vs")&&($("#vs").onclick=()=>toggleSave(l.id));open("#m-view")}
 
 /* add a place (landlord => pending, admin => live) */
 function form(){$("#fc").innerHTML=`<h2>${isAdmin?"Add a place":"List your place"}</h2><p class="mut">Every new listing is saved as pending until an authorised admin approves it.</p>
 <div class="row"><div><label>Name</label><input id="fn"></div><div><label>Type</label><select id="ft">${Object.keys(TY).map(t=>`<option>${t}</option>`).join("")}</select></div></div>
-<div class="row"><div><label>Area</label><select id="fa">${Object.keys(AR).map(a=>`<option>${a}</option>`).join("")}</select></div><div><label>WhatsApp number</label><input id="fp" type="tel" placeholder="0241234567"></div></div>
+<div class="row"><div><label>Area</label><select id="fa">${Object.keys(AR).map(a=>`<option>${a}</option>`).join("")}</select></div><div><label>WhatsApp number</label><input id="fp" type="tel" placeholder="0241234567" value="${esc((acct&&acct.phone)||"")}"></div></div>
 <div class="row"><div><label>Price (GH₵)</label><input id="fpr" type="number" min="1"></div><div><label>Per</label><select id="fe"><option>month</option><option>year</option><option>semester</option><option>night</option></select></div></div>
 <label>Rooms available</label><input id="fr" type="number" value="1" min="0"><label>What’s included</label><div style="display:flex;flex-wrap:wrap;gap:6px">${Object.entries(AM).map(([k,v])=>`<label style="font-weight:400;margin:0;background:var(--bg);padding:5px 10px;border-radius:99px"><input type="checkbox" style="width:auto" value="${k}"> ${v}</label>`).join("")}</div>
 <label>Description</label><textarea id="fd" rows="3"></textarea><p><button class="btn" id="fs">Publish listing</button></p>`;
   $("#fs").onclick=()=>{const g=i=>$(i).value.trim();if(!g("#fn")||!+g("#fpr")||g("#fp").replace(/\D/g,"").length<10)return toast("Add a name, a price and a 10-digit phone number");
-    const listing={id:"u"+Date.now(),name:g("#fn"),type:g("#ft"),area:g("#fa"),phone:g("#fp"),price:+g("#fpr"),per:g("#fe"),rooms:+g("#fr")||0,am:$$("#fc input[type=checkbox]:checked").map(i=>i.value),desc:g("#fd"),status:"pending"};L.push(listing);save();shut();draw();if(firestoreReady){toast("Sending listing to Firestore…");cloudCreateListing(listing).then(()=>toast("Listing submitted online for admin approval.")).catch(err=>{console.error("Firestore create failed:",err);toast("Online save blocked by Firestore Rules. Kept locally on this device.")})}else toast("Firebase unavailable. Listing saved locally only.")};open("#m-form")}
+    const listing={id:"u"+Date.now(),name:g("#fn"),type:g("#ft"),area:g("#fa"),phone:g("#fp"),price:+g("#fpr"),per:g("#fe"),rooms:+g("#fr")||0,am:$$("#fc input[type=checkbox]:checked").map(i=>i.value),desc:g("#fd"),status:"pending",contacts:0,ownerUid:acct.uid,ownerEmail:acct.email};L.push(listing);save();shut();draw();if(firestoreReady){toast("Sending listing to Firestore…");cloudCreateListing(listing).then(()=>toast("Listing submitted. Track it under your account.")).catch(err=>{console.error("Firestore create failed:",err);L=L.filter(x=>x!==listing);draw();toast("Couldn’t submit your listing. Check you’re signed in as a landlord or agent.")})}else toast("Firebase unavailable. Listing saved locally only.")};open("#m-form")}
 
 
-/* admin + moderators: Firebase Auth. Roles live in Firestore: the admin is set in the Rules, moderators are documents in "roles". */
+/* accounts: everyone signs in through Firebase Auth. Role decides what they see.
+   admin = set in the Firestore Rules; moderator = doc in "roles"; landlord/tenant = doc in "users". The server enforces it all. */
+const unionById=(a,b)=>{const m=new Map();a.concat(b).forEach(x=>m.set(String(x.id),x));return[...m.values()]};
+function recompute(){
+  if(staff)L=staffList.slice();
+  else if(liveLoaded){L=unionById(lastLive,ownList);save()}
+  else return;
+  draw();refreshPanel()
+}
+function refreshPanel(){
+  if(!$("#m-adm").classList.contains("show"))return;const ac=$("#ac");
+  if(staff&&ac.querySelector("[data-t]")&&curTab!=="mods")adm(curTab);
+  else if(acct&&acct.role==="landlord"&&ac.querySelector("#ll-add"))ll()
+}
 async function resolveRole(user){
   try{const sn=await db.collection("roles").get();return{role:"admin",roles:sn.docs.map(d=>({uid:d.id,...d.data()})).filter(x=>x.role==="moderator")}}catch(e){console.info("Not admin (roles list refused):",e.code)}
   try{const d=await db.collection("roles").doc(user.uid).get();if(d.exists&&d.data().role==="moderator")return{role:"moderator"}}catch(e){console.info("Not moderator:",e.code)}
   return{role:null}
 }
-function setStaff(s,roles){
-  const was=staff;staff=s;modList=roles||[];isAdmin=!!s;
-  $("#nadmT").textContent=s?(s.role==="admin"?"Admin panel":"Moderator panel"):"Admin";
-  if(staffUnsub){staffUnsub();staffUnsub=null}
-  if(s&&db){staffUnsub=db.collection("listings").onSnapshot(sn=>{L=sn.docs.map(d=>({id:d.id,...d.data()}));draw();if($("#m-adm").classList.contains("show")&&$("#ac").querySelector("[data-t]"))adm(curTab)},err=>{console.error(err);toast("Could not load all listings for review.")})}
-  else if(was){L=lastLive.slice();draw()}
+function setAcct(a,roles){
+  acct=a;staff=a&&(a.role==="admin"||a.role==="moderator")?a:null;modList=roles||[];isAdmin=!!staff;
+  $("#nadmT").textContent=a?((a.name||"").split(" ")[0]||"My account"):"Sign in";
+  if(staffUnsub){staffUnsub();staffUnsub=null}if(ownUnsub){ownUnsub();ownUnsub=null}
+  if(peopleUnsub){peopleUnsub();peopleUnsub=null}if(rolesUnsub){rolesUnsub();rolesUnsub=null}
+  staffList=[];ownList=[];peopleList=[];if(!a)saved=new Set();
+  if(a&&a.role==="admin"&&db){
+    peopleUnsub=db.collection("users").onSnapshot(sn=>{peopleList=sn.docs.map(d=>({uid:d.id,...d.data()}));refreshPanel()},err=>console.error("People list:",err));
+    rolesUnsub=db.collection("roles").onSnapshot(sn=>{modList=sn.docs.map(d=>({uid:d.id,...d.data()})).filter(x=>x.role==="moderator");refreshPanel()},err=>console.error("Roles list:",err))}
+  if(staff&&db){staffUnsub=db.collection("listings").onSnapshot(sn=>{staffList=sn.docs.map(d=>({id:d.id,...d.data()}));recompute()},err=>{console.error(err);toast("Could not load all listings for review.")})}
+  else if(a&&a.role==="landlord"&&db){ownUnsub=db.collection("listings").where("ownerUid","==",a.uid).onSnapshot(sn=>{ownList=sn.docs.map(d=>({id:d.id,...d.data()}));recompute()},err=>{console.error(err);toast("Could not load your listings.")})}
+  recompute()
 }
 async function applyUser(user){
-  if(!user||!db){setStaff(null);return null}
+  if(!user||!db){setAcct(null);return null}
   const r=await resolveRole(user);
-  if(!r.role){setStaff(null);return null}
-  setStaff({role:r.role,email:user.email,uid:user.uid},r.roles);return r.role
+  if(r.role){setAcct({uid:user.uid,email:user.email,name:user.displayName||"",role:r.role},r.roles);return r.role}
+  saved=new Set();let name=user.displayName||"",phone="",role="tenant";
+  try{const d=await db.collection("users").doc(user.uid).get();if(d.exists){const u=d.data();name=u.name||name;phone=u.phone||"";saved=new Set((u.saved||[]).map(String));role=u.role==="landlord"?"landlord":"tenant"}}catch(e){console.info("Profile not readable:",e.code)}
+  setAcct({uid:user.uid,email:user.email,name,phone,role});return role
 }
-if(auth)auth.onAuthStateChanged(u=>{applyUser(u).then(r=>{if(u&&!r)auth.signOut()}).catch(e=>console.error(e))});
-const admOpen=()=>{if(isAdmin)return adm();
-  if(!auth){$("#ac").innerHTML=`<h2>Admin sign-in</h2><p class="mut">Sign-in is unavailable right now. Check your connection and reload.</p>`;return open("#m-adm")}
-  $("#ac").innerHTML=`<h2>Admin sign-in</h2><label>Email</label><input id="ae" type="email" autocomplete="username"><label>Password</label><input id="ap" type="password" autocomplete="current-password"><p id="aerr" class="mut" style="display:none;color:#b3261e"></p><p><button class="btn" id="al">Sign in</button></p>`;
-  const err$=t=>{const el=$("#aerr");if(el){el.innerHTML=t;el.style.display="block"}};
-  const go=async()=>{const e=$("#ae").value.trim(),p=$("#ap").value;if(!e||!p)return err$("Enter your email and password.");$("#al").disabled=true;err$("Signing in…");
-    try{const cred=await auth.signInWithEmailAndPassword(e,p),uid=cred.user.uid;const r=await applyUser(cred.user);
-      if(r){adm()}else{err$("Signed in, but this account isn’t set up as admin or moderator yet.<br>Its UID is <b style=\"user-select:all\">"+esc(uid)+"</b>. For the admin, that exact UID must be inside <code>isAdmin()</code> in your Firestore Rules, and the Rules must be published.");try{await auth.signOut()}catch(x){}}}
-    catch(err){console.error("Sign-in failed:",err.code,err);const M={"auth/operation-not-allowed":"Email/Password sign-in isn’t turned on in Firebase yet (Authentication, Sign-in method).","auth/invalid-credential":"Wrong email or password.","auth/wrong-password":"Wrong email or password.","auth/user-not-found":"No user with that email in this Firebase project.","auth/invalid-email":"That email doesn’t look right.","auth/user-disabled":"This account is disabled in Firebase.","auth/network-request-failed":"Can’t reach Firebase. Check your internet connection.","auth/too-many-requests":"Too many attempts. Try again later.","auth/operation-not-supported-in-this-environment":"Sign-in doesn’t work when the page is opened as a file on your computer. Open it from its web address.","auth/unauthorized-domain":"This website address isn’t on Firebase’s authorized domains list.","auth/invalid-api-key":"The Firebase API key in the page is not valid.","auth/api-key-not-valid.-please-pass-a-valid-api-key.":"The Firebase API key in the page is not valid."};
-      err$(esc(M[err.code]||("Sign-in failed ("+(err.code||"unknown error")+")")))}
-    $("#al")&&($("#al").disabled=false)};
-  $("#al").onclick=go;$("#ap").onkeydown=e=>{if(e.key==="Enter")go()};open("#m-adm")};
+if(auth)auth.onAuthStateChanged(u=>{if(pendingSignup)return;applyUser(u).catch(e=>console.error(e))});
+const doSignOut=async()=>{try{await auth.signOut()}catch(e){}setAcct(null);shut();toast("Signed out")};
+const AUTH_MSG={"auth/operation-not-allowed":"Email/Password sign-in isn’t turned on in Firebase yet (Authentication, Sign-in method).","auth/invalid-credential":"Wrong email or password.","auth/wrong-password":"Wrong email or password.","auth/user-not-found":"No account with that email. Try creating one.","auth/invalid-email":"That email doesn’t look right.","auth/user-disabled":"This account is disabled.","auth/email-already-in-use":"That email already has an account. Try signing in.","auth/weak-password":"Choose a stronger password (8+ characters).","auth/network-request-failed":"Can’t reach Firebase. Check your internet connection.","auth/too-many-requests":"Too many attempts. Try again later.","auth/operation-not-supported-in-this-environment":"Sign-in doesn’t work when the page is opened as a file on your computer. Open it from its web address.","auth/unauthorized-domain":"This website address isn’t on Firebase’s authorized domains list.","auth/invalid-api-key":"The Firebase API key in the page is not valid."};
+const authMsg=x=>AUTH_MSG[x.code]||("Something went wrong ("+(x.code||"unknown error")+")");
+const err$=(t,ok)=>{const el=$("#aerr");if(el){el.innerHTML=t;el.style.color=ok?"#1b6b4a":"#b3261e";el.style.display="block"}};
 let curTab="all";
-function adm(tab="all"){curTab=tab;if(!staff)return admOpen();
+function dash(){if(!acct)return acctOpen();if(staff)return adm();if(acct.role==="landlord")return ll();return tenantPanel()}
+function acctOpen(mode,note){
+  if(acct)return dash();
+  if(!auth){$("#ac").innerHTML=`<h2>Sign in</h2><p class="mut">Sign-in is unavailable right now. Check your connection and reload.</p>`;return open("#m-adm")}
+  authView(mode||"in",note);open("#m-adm")
+}
+function authView(mode,note){
+  const up=mode!=="in";
+  $("#ac").innerHTML=`<h2>${up?"Create your account":"Sign in"}</h2>${note?`<p class="mut">${esc(note)}</p>`:""}<div class="tabs"><button class="btn ${up?"":"on"}" id="tin">Sign in</button><button class="btn ${up?"on":""}" id="tup">Create account</button></div>`+
+  (up?`<label>Full name</label><input id="au-name" autocomplete="name"><label>I am…</label><select id="au-role"><option value="tenant">Looking for a place</option><option value="landlord">A landlord or agent listing places</option></select><div id="au-pw" style="display:none"><label>WhatsApp number</label><input id="au-ph" type="tel" placeholder="0241234567"></div>`:"")+
+  `<label>Email</label><input id="ae" type="email" autocomplete="username"><label>Password${up?" (8+ characters)":""}</label><input id="ap" type="password" autocomplete="${up?"new-password":"current-password"}"><p id="aerr" class="mut" style="display:none"></p><p><button class="btn" id="al">${up?"Create account":"Sign in"}</button>${up?"":` <button class="btn alt" style="color:#13221c" id="afp">Forgot password?</button>`}</p>`;
+  $("#tin").onclick=()=>authView("in");$("#tup").onclick=()=>authView("up");
+  if(up){const sr=$("#au-role"),sync=()=>{$("#au-pw").style.display=sr.value==="landlord"?"block":"none"};if(mode==="signup-landlord")sr.value="landlord";sr.onchange=sync;sync()}
+  else $("#afp").onclick=async()=>{const e=$("#ae").value.trim();if(!e)return err$("Type your email above first, then tap Forgot password.");try{await auth.sendPasswordResetEmail(e);err$("If that email has an account, a reset link is on its way.",1)}catch(x){err$(esc(authMsg(x)))}};
+  const go=async()=>{const e=$("#ae").value.trim(),p=$("#ap").value;if(!e||!p)return err$("Enter your email and password.");
+    $("#al").disabled=true;err$("Working…",1);
+    try{
+      if(up){
+        const nm=$("#au-name").value.trim(),role=$("#au-role").value,ph=($("#au-ph").value||"").trim();
+        if(!nm){$("#al").disabled=false;return err$("Add your name.")}
+        if(p.length<8){$("#al").disabled=false;return err$("Choose a password of 8+ characters.")}
+        if(role==="landlord"&&ph.replace(/\D/g,"").length<10){$("#al").disabled=false;return err$("Landlords and agents need a 10-digit WhatsApp number.")}
+        pendingSignup=true;let cred;
+        try{cred=await auth.createUserWithEmailAndPassword(e,p)}catch(x){pendingSignup=false;throw x}
+        try{await cred.user.updateProfile({displayName:nm})}catch(x){}
+        let saved=true;
+        try{await db.collection("users").doc(cred.user.uid).set({name:nm,email:e,role,phone:role==="landlord"?ph:"",createdAt:firebase.firestore.FieldValue.serverTimestamp()})}catch(x){saved=false;console.error("Profile save failed:",x)}
+        pendingSignup=false;await applyUser(cred.user);
+        if(!saved)toast("Account created, but your profile couldn’t be saved. Check the Firestore Rules.");
+        dash()
+      }else{const cred=await auth.signInWithEmailAndPassword(e,p);await applyUser(cred.user);dash()}
+    }catch(x){console.error("Auth failed:",x.code,x);err$(esc(authMsg(x)))}
+    const b=$("#al");if(b)b.disabled=false};
+  $("#al").onclick=go;$("#ap").onkeydown=e=>{if(e.key==="Enter")go()}
+}
+async function toggleSave(id){
+  id=String(id);
+  if(!acct){shut();return acctOpen("up","Create a free account to save places and come back to them.")}
+  if(acct.role!=="tenant")return toast("Saving places is for tenant accounts.");
+  const had=saved.has(id);had?saved.delete(id):saved.add(id);
+  const b=$("#vs");if(b)b.textContent=saved.has(id)?"♥ Saved":"♡ Save";draw();
+  const fv=firebase.firestore.FieldValue;
+  try{
+    try{await db.collection("users").doc(acct.uid).update({saved:had?fv.arrayRemove(id):fv.arrayUnion(id)})}
+    catch(e){await db.collection("users").doc(acct.uid).set({name:acct.name||"",email:acct.email,role:"tenant",phone:"",saved:[...saved],createdAt:fv.serverTimestamp()})}
+  }catch(err){console.error(err);had?saved.add(id):saved.delete(id);draw();const b2=$("#vs");if(b2)b2.textContent=saved.has(id)?"♥ Saved":"♡ Save";toast("Couldn’t save that. Check the Firestore Rules.")}
+  if($("#m-adm").classList.contains("show")&&$("#tp-browse"))tenantPanel()
+}
+async function becomeLandlord(){
+  try{
+    try{await db.collection("users").doc(acct.uid).update({role:"landlord"})}
+    catch(e){await db.collection("users").doc(acct.uid).set({name:acct.name||"",email:acct.email,role:"landlord",phone:acct.phone||"",createdAt:firebase.firestore.FieldValue.serverTimestamp()})}
+    await applyUser(auth.currentUser);dash()
+  }catch(err){console.error(err);toast("Couldn’t switch your account. Check the Firestore Rules.")}
+}
+function tenantPanel(){
+  const rows=[...saved].map(id=>{const l=L.find(x=>String(x.id)===id&&x.status==="live");
+    return l?`<div class="li"><div><b>${esc(l.name)}</b><div class="mut">${esc(l.type)} · ${esc(l.area)} · ${money(l)} · ${l.rooms>0?l.rooms+" available":"full"}</div></div><button class="btn sm" data-sv-open="${esc(id)}">Open</button><button class="btn alt sm" style="color:#13221c" data-sv-rm="${esc(id)}">Remove</button></div>`
+      :`<div class="li"><div><b>A place that’s no longer listed</b></div><button class="btn alt sm" style="color:#13221c" data-sv-rm="${esc(id)}">Remove</button></div>`}).join("")||`<p class="mut">Nothing saved yet. Open a place and tap ♡ Save to keep it here.</p>`;
+  $("#ac").innerHTML=`<h2>My account</h2><p class="mut">Signed in as ${esc(acct.name||acct.email)} · looking for a place</p><p><button class="btn" id="tp-browse">Browse places</button> <button class="btn sea" id="tp-ll">I want to list a place</button> <button class="btn alt" style="color:#13221c" id="ao">Sign out</button></p><h3>Saved places</h3>${rows}<p class="mut">Always visit a place and meet the landlord before you pay.</p><details class="mut"><summary>Admin or moderator?</summary><p>If you expected the admin panel, your account ID is <b style="user-select:all">${esc(acct.uid)}</b>. For the admin, this exact ID must be inside <code>isAdmin()</code> in your Firestore Rules, and the Rules must be published.</p></details>`;
+  $("#tp-browse").onclick=()=>{shut();sc(".split","start")};$("#tp-ll").onclick=becomeLandlord;$("#ao").onclick=doSignOut;
+  $$("[data-sv-open]").forEach(b=>b.onclick=()=>{shut();view(b.dataset.svOpen)});
+  $$("[data-sv-rm]").forEach(b=>b.onclick=()=>toggleSave(b.dataset.svRm));
+  open("#m-adm")
+}
+function listOpen(){
+  if(!acct)return acctOpen("signup-landlord","Create a free landlord or agent account to list your place. You’ll be able to track its status here.");
+  if(staff||acct.role==="landlord")return form();
+  $("#ac").innerHTML=`<h2>List your place</h2><p class="mut">Your account is a tenant account. Switch to a landlord or agent account to list places.</p><p><button class="btn" id="up-ll">Switch to landlord/agent</button></p>`;
+  open("#m-adm");$("#up-ll").onclick=becomeLandlord
+}
+function ll(){
+  if(!acct||acct.role!=="landlord")return dash();
+  const mine=L.filter(l=>l.ownerUid===acct.uid),c=n=>mine.filter(l=>l.status===n).length,taps=mine.reduce((a,l)=>a+(l.contacts||0),0);
+  const dt=l=>{try{return l.createdAt&&l.createdAt.toDate?l.createdAt.toDate().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}):""}catch(e){return ""}};
+  const note=l=>l.status==="pending"?"Waiting for approval. It will appear on the site once approved.":l.status==="hidden"?"Hidden by the admin. It isn’t showing on the site.":"Live on the site.";
+  $("#ac").innerHTML=`<h2>My listings</h2><p class="mut">Signed in as ${esc(acct.name||acct.email)} · landlord or agent</p><div class="stats"><div><b>${mine.length}</b>Total</div><div><b>${c("live")}</b>Live</div><div><b>${c("pending")}</b>Awaiting approval</div><div><b>${taps}</b>WhatsApp taps</div></div><div class="tabs"><button class="btn sea" id="ll-add">+ List a place</button><button class="btn alt" style="color:#13221c" id="ao">Sign out</button></div>`+
+  (mine.map(l=>`<div class="li"><div><b>${esc(l.name)}</b> <span class="st ${l.status}">${l.status==="live"?"live":l.status==="pending"?"awaiting approval":"hidden"}</span><div class="mut">${esc(l.type)} · ${esc(l.area)} · ${money(l)} · ${l.rooms>0?l.rooms+" available":"full"}</div><div class="mut">${note(l)} ${dt(l)?"Submitted "+dt(l)+". ":""}WhatsApp taps: ${l.contacts||0}</div></div><button class="btn alt sm" style="color:#13221c" data-lo="full" data-i="${l.id}">${l.rooms>0?"Mark full":"Mark available"}</button><button class="btn bad sm" data-lo="del" data-i="${l.id}">Delete</button></div>`).join("")||`<p class="mut">You haven’t listed anything yet. Tap “List a place” to add your first one.</p>`);
+  $("#ll-add").onclick=()=>{shut();form()};$("#ao").onclick=doSignOut;
+  $$("[data-lo]").forEach(b=>b.onclick=()=>{const l=mine.find(x=>String(x.id)===b.dataset.i);if(!l)return;
+    if(b.dataset.lo==="del"){if(!confirm("Delete this listing?"))return;cloudDeleteListing(l.id).then(()=>toast("Deleted")).catch(err=>{console.error(err);toast("Couldn’t delete it.")});return}
+    cloudUpdateListing(l.id,{rooms:l.rooms>0?0:1}).catch(err=>{console.error(err);toast("Couldn’t update it.")})});
+  open("#m-adm")
+}
+function adm(tab="all"){curTab=tab;if(!staff)return acctOpen();
   const isA=staff.role==="admin",c=n=>L.filter(l=>l.status===n).length,sh=tab==="all"?L:L.filter(l=>l.status===tab);
-  const tabs=[["all","All"],["pending","Awaiting approval"],["live","Live"],["hidden","Hidden"]].concat(isA?[["mods","Moderators"]]:[]);
-  const list=sh.map(l=>`<div class="li"><div><b>${esc(l.name)}</b> <span class="st ${l.status}">${l.status==="live"?"live":l.status==="pending"?"awaiting approval":"hidden"}</span><div class="mut">${esc(l.type)} · ${esc(l.area)} · ${money(l)} · ${l.rooms>0?l.rooms+" available":"full"}</div></div>${l.status!=="live"?`<button class="btn sm" data-o="live" data-i="${l.id}">Approve</button>`:`<button class="btn alt sm" style="color:#13221c" data-o="hidden" data-i="${l.id}">Hide</button>`}<button class="btn alt sm" style="color:#13221c" data-o="full" data-i="${l.id}">${l.rooms>0?"Mark full":"Mark available"}</button>${isA?`<button class="btn bad sm" data-o="del" data-i="${l.id}">Delete</button>`:""}</div>`).join("")||`<p class="mut">Nothing here.</p>`;
-  const mods=`<div class="li"><div><b>Add a moderator</b><div class="mut">Moderators can approve, hide and mark places full. They can’t delete listings or manage people.</div></div></div><label>Email</label><input id="me" type="email" autocomplete="off"><label>Temporary password (8+ characters)</label><input id="mp" type="text" autocomplete="off"><p><button class="btn" id="ma">Create moderator</button></p>`+(modList.map(m=>`<div class="li"><div><b>${esc(m.email||m.uid)}</b><div class="mut">moderator</div></div><button class="btn bad sm" data-rm="${m.uid}">Remove</button></div>`).join("")||`<p class="mut">No moderators yet.</p>`);
+  const tabs=[["all","All"],["pending","Awaiting approval"],["live","Live"],["hidden","Hidden"]].concat(isA?[["people","People ("+peopleList.length+")"],["mods","Moderators"]]:[]);
+  const list=sh.map(l=>`<div class="li"><div><b>${esc(l.name)}</b> <span class="st ${l.status}">${l.status==="live"?"live":l.status==="pending"?"awaiting approval":"hidden"}</span><div class="mut">${esc(l.type)} · ${esc(l.area)} · ${money(l)} · ${l.rooms>0?l.rooms+" available":"full"}${l.ownerEmail?" · by "+esc(l.ownerEmail):""}${l.contacts?" · "+l.contacts+" WhatsApp taps":""}</div></div>${l.status!=="live"?`<button class="btn sm" data-o="live" data-i="${l.id}">Approve</button>`:`<button class="btn alt sm" style="color:#13221c" data-o="hidden" data-i="${l.id}">Hide</button>`}<button class="btn alt sm" style="color:#13221c" data-o="full" data-i="${l.id}">${l.rooms>0?"Mark full":"Mark available"}</button>${isA?`<button class="btn bad sm" data-o="del" data-i="${l.id}">Delete</button>`:""}</div>`).join("")||`<p class="mut">Nothing here.</p>`;
+  const modIds=new Set(modList.map(m=>m.uid));
+  const pdt=p=>{try{return p.createdAt&&p.createdAt.toDate?p.createdAt.toDate().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}):""}catch(e){return ""}};
+  const people=peopleList.slice().sort((x,y)=>((y.createdAt&&y.createdAt.seconds)||0)-((x.createdAt&&x.createdAt.seconds)||0)).filter(x=>x.uid!==staff.uid);
+  const peopleHTML=`<p class="mut">Everyone who has created an account, newest first. Make a person a moderator and they can approve, hide and mark places full the next time they sign in.</p>`+(people.map(x=>{const mine=L.filter(l=>l.ownerUid===x.uid).length,isM=modIds.has(x.uid);
+    return `<div class="li"><div><b>${esc(x.name||x.email||x.uid)}</b> <span class="st ${isM?"live":"pending"}">${isM?"moderator":x.role==="landlord"?"landlord/agent":"tenant"}</span><div class="mut">${esc(x.email||"")}${x.phone?" · "+esc(x.phone):""}${pdt(x)?" · joined "+pdt(x):""}${x.role==="landlord"?" · "+mine+" listing"+(mine===1?"":"s"):""}</div></div>${isM?`<button class="btn alt sm" style="color:#13221c" data-un="${esc(x.uid)}">Remove moderator</button>`:`<button class="btn sm" data-mk="${esc(x.uid)}">Make moderator</button>`}</div>`}).join("")||`<p class="mut">No one has signed up yet.</p>`);
+  const mods=`<div class="li"><div><b>Add a moderator</b><div class="mut">Moderators can approve, hide and mark places full. They can’t delete listings or manage people. To promote someone who has already signed up, use the People tab.</div></div></div><label>Email</label><input id="me" type="email" autocomplete="off"><label>Temporary password (8+ characters)</label><input id="mp" type="text" autocomplete="off"><p><button class="btn" id="ma">Create moderator</button></p>`+(modList.map(m=>`<div class="li"><div><b>${esc(m.email||m.uid)}</b><div class="mut">moderator</div></div><button class="btn bad sm" data-rm="${m.uid}">Remove</button></div>`).join("")||`<p class="mut">No moderators yet.</p>`);
   $("#ac").innerHTML=`<h2>${isA?"Admin":"Moderator"} panel</h2><p class="mut">Signed in as ${esc(staff.email||"")}</p><div class="stats"><div><b>${L.length}</b>Total</div><div><b>${c("live")}</b>Live</div><div><b>${c("pending")}</b>Awaiting approval</div><div><b>${c("hidden")}</b>Hidden</div></div>
-<div class="tabs">${tabs.map(t=>`<button class="btn ${tab===t[0]?"on":""}" data-t="${t[0]}">${t[1]}</button>`).join("")}<button class="btn sea" id="aa">+ Add a place</button><button class="btn alt" style="color:#13221c" id="ao">Sign out</button></div>`+(tab==="mods"&&isA?mods:list);
+<div class="tabs">${tabs.map(t=>`<button class="btn ${tab===t[0]?"on":""}" data-t="${t[0]}">${t[1]}</button>`).join("")}<button class="btn sea" id="aa">+ Add a place</button><button class="btn alt" style="color:#13221c" id="ao">Sign out</button></div>`+(tab==="mods"&&isA?mods:tab==="people"&&isA?peopleHTML:list);
   $$("[data-t]").forEach(b=>b.onclick=()=>adm(b.dataset.t));$("#aa").onclick=()=>{shut();form()};
-  $("#ao").onclick=async()=>{try{await auth.signOut()}catch(e){}setStaff(null);shut();toast("Signed out")};
+  $("#ao").onclick=doSignOut;
   $$("[data-o]").forEach(b=>b.onclick=()=>{const l=L.find(x=>x.id===b.dataset.i),o=b.dataset.o;if(!l)return;
     if(o==="del"){if(!isA)return;if(!confirm("Delete this listing?"))return;cloudDeleteListing(l.id).then(()=>toast("Deleted")).catch(err=>{console.error(err);toast("Delete was refused by the server.")});return}
     const fields=o==="full"?{rooms:l.rooms>0?0:1}:{status:o};
     cloudUpdateListing(l.id,fields).catch(err=>{console.error(err);toast("Update was refused by the server.")})});
+  if(tab==="people"&&isA){
+    $$("[data-mk]").forEach(b=>b.onclick=async()=>{const x=peopleList.find(y=>y.uid===b.dataset.mk);if(!x)return;if(!confirm("Make "+(x.name||x.email)+" a moderator? They’ll be able to approve, hide and mark places full."))return;
+      try{await db.collection("roles").doc(x.uid).set({role:"moderator",email:x.email||"",createdAt:firebase.firestore.FieldValue.serverTimestamp()});toast((x.name||x.email)+" is now a moderator.")}catch(err){console.error(err);toast("Couldn’t make them a moderator.")}});
+    $$("[data-un]").forEach(b=>b.onclick=async()=>{if(!confirm("Remove this moderator’s access?"))return;try{await db.collection("roles").doc(b.dataset.un).delete();toast("Moderator access removed.")}catch(err){console.error(err);toast("Couldn’t remove that moderator.")}})}
   if(tab==="mods"&&isA){
     $("#ma").onclick=async()=>{const em=$("#me").value.trim(),pw=$("#mp").value;if(!em||pw.length<8)return toast("Enter an email and a password of 8+ characters");$("#ma").disabled=true;
       try{const app2=firebase.apps.find(a=>a.name==="mod")||firebase.initializeApp(firebaseConfig,"mod");const a2=app2.auth();const cred=await a2.createUserWithEmailAndPassword(em,pw);await a2.signOut();
@@ -344,6 +451,8 @@ function adm(tab="all"){curTab=tab;if(!staff)return admOpen();
       catch(err){console.error(err);toast(err.code==="auth/email-already-in-use"?"That email already has an account.":"Couldn’t create the moderator.");$("#ma")&&($("#ma").disabled=false)}};
     $$("[data-rm]").forEach(b=>b.onclick=async()=>{if(!confirm("Remove this moderator’s access?"))return;try{await db.collection("roles").doc(b.dataset.rm).delete();modList=modList.filter(x=>x.uid!==b.dataset.rm);adm("mods")}catch(err){console.error(err);toast("Couldn’t remove that moderator.")}})}
   open("#m-adm")}
+/* count WhatsApp taps so landlords can see interest in their place */
+document.addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("[data-wa]");if(!a||!db)return;db.collection("listings").doc(String(a.dataset.wa)).update({contacts:firebase.firestore.FieldValue.increment(1)}).catch(()=>{})},true);
 
 /* the walking guide */
 const man=$("#man"),say=$("#say");let step=-1,px=0,busy=0;
@@ -353,7 +462,7 @@ const STEPS=[
 {t:["#bar"],m:"Step 2: Pick the type of place and your monthly budget. Prices for years or nights are converted for you."},
 {t:['[data-a="Circle"]','[data-a="Osu"]','[data-a="East Legon"]'],m:"Step 3: This is the live map of Accra. Switch between street, satellite and terrain views. The markers show approximate neighbourhood locations for each stay; tap one to see its details."},
 {t:["#grid"],m:"Step 4: Tap a card to see what’s included, then chat with the landlord on WhatsApp. Always visit before you pay."},
-{t:["#orbitToggle"],m:"Tap Explore any time to jump around, list your place, or sign in as admin. That’s everything. Tap me whenever you need help!"}];
+{t:["#orbitToggle"],m:"Tap Explore any time to jump around, list your place, or sign in to your account. That’s everything. Tap me whenever you need help!"}];
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 /* Natural spoken narration. Browsers require a user gesture before audio can start. */
 let voiceEnabled=false,voiceBusy=false;
@@ -389,7 +498,7 @@ window.guide=man.onclick=()=>{window.scrollTo({top:0,behavior:"smooth"});man.sty
 addEventListener("resize",()=>{if(step<0)home()});
 man.style.top=(innerHeight-160)+"px";man.style.left="-100px";draw();
 // Realtime database sync. Firestore documents live in the "listings" collection.
-if(firestoreReady&&db){db.collection("listings").where("status","==","live").onSnapshot(snapshot=>{const live=snapshot.docs.map(doc=>({id:doc.id,...doc.data()}));lastLive=live;if(staff)return;let cached=[];try{cached=JSON.parse(localStorage.getItem("akw_l")||"[]")||[]}catch(e){}const localReview=cached.filter(x=>x.status==="pending"||x.status==="hidden");L=[...live,...localReview.filter(x=>!live.some(y=>y.id===x.id))];save();draw();console.info("Akwaaba Stays: public Firestore listings loaded",live.length);},err=>{console.error("Firestore listener failed:",err);toast("Could not read Firestore. Check database setup and Security Rules.");try{const cached=JSON.parse(localStorage.getItem("akw_l")||"null");if(cached){L=cached;draw()}}catch(e){}})}
+if(firestoreReady&&db){db.collection("listings").where("status","==","live").onSnapshot(snapshot=>{const live=snapshot.docs.map(doc=>({id:doc.id,...doc.data()}));lastLive=live;liveLoaded=true;recompute();console.info("Akwaaba Stays: public Firestore listings loaded",live.length);},err=>{console.error("Firestore listener failed:",err);toast("Could not read Firestore. Check database setup and Security Rules.");try{const cached=JSON.parse(localStorage.getItem("akw_l")||"null");if(cached){L=cached;draw()}}catch(e){}})}
 let seen=0;try{seen=localStorage.getItem("akw_seen")}catch(e){}
 setTimeout(()=>seen?home():show(0),900);
 
@@ -402,6 +511,6 @@ setTimeout(()=>seen?home():show(0),900);
  const cl=()=>{pn.classList.remove("open");pn.setAttribute("aria-hidden","true");bd.classList.remove("active");tg.setAttribute("aria-expanded","false");document.body.classList.remove("orbit-open");setTimeout(()=>bd.hidden=true,red?0:360)};
  tg.onclick=()=>pn.classList.contains("open")?cl():op();$("#orbitClose").onclick=bd.onclick=cl;addEventListener("keydown",e=>{if(e.key==="Escape"&&pn.classList.contains("open"))cl()});
  const sc=(s,b)=>$(s).scrollIntoView({behavior:red?"auto":"smooth",block:b});
- $$("[data-dest]").forEach(c=>c.onclick=()=>{const k=c.dataset.dest;cl();setTimeout(()=>{({stays:()=>sc(".split","start"),map:()=>sc("#mapw","center"),area:()=>sc("#car","center"),guide:()=>window.guide(),list:form,admin:admOpen})[k]()},red?0:240)});
+ $$("[data-dest]").forEach(c=>c.onclick=()=>{const k=c.dataset.dest;cl();setTimeout(()=>{({stays:()=>sc(".split","start"),map:()=>sc("#mapw","center"),area:()=>sc("#car","center"),guide:()=>window.guide(),list:listOpen,account:()=>acctOpen()})[k]()},red?0:240)});
  if(!red&&matchMedia("(pointer:fine)").matches)$$(".orbit-card").forEach(c=>{c.onpointermove=e=>{const r=c.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;c.style.transform=`perspective(850px) rotateX(${-y*9}deg) rotateY(${x*11}deg) translateY(-3px)`};c.onpointerleave=()=>c.style.transform=""})})();
 </script></body></html>
