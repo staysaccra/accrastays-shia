@@ -1,5 +1,5 @@
 // Imi app shell. Bump CACHE when you change this file's behaviour.
-const CACHE = 'imi-shell-v2';
+const CACHE = 'imi-shell-v3';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png', './icons/favicon-48.png'];
 
 self.addEventListener('install', event => {
