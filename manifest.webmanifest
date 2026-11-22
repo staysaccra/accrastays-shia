@@ -1,13 +1,13 @@
 {
-  "name": "Akwaaba Stays",
-  "short_name": "Akwaaba",
-  "description": "Find hostels, rooms and apartments in Accra.",
+  "name": "Imi \u2013 find a place to stay in Accra",
+  "short_name": "Imi",
+  "description": "Seek and find hostels, rooms and apartments in Accra.",
   "start_url": "./?source=pwa",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0d3b2e",
-  "theme_color": "#0d3b2e",
+  "background_color": "#04401e",
+  "theme_color": "#0B6623",
   "categories": [
     "travel",
     "lifestyle"
