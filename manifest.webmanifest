@@ -1,32 +1,33 @@
 {
-  "name": "Imi \u2013 find a place to stay in Accra",
+  "id": "./",
+  "name": "Imi \u2014 Houses & Apartments for Rent",
   "short_name": "Imi",
-  "description": "Seek and find hostels, rooms and apartments in Accra.",
-  "start_url": "./?source=pwa",
+  "description": "Find houses and apartments for rent across Accra.",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#04401e",
+  "background_color": "#F8FCF8",
   "theme_color": "#0B6623",
   "categories": [
-    "travel",
-    "lifestyle"
+    "lifestyle",
+    "travel"
   ],
   "icons": [
     {
-      "src": "icons/icon-192.png",
+      "src": "./icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "icons/icon-512.png",
+      "src": "./icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "icons/maskable-512.png",
+      "src": "./icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
